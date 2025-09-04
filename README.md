@@ -151,4 +151,4 @@ docker-compose exec web pytest
 ---
 
 ## 📄 License
-MIT License (to be confirmed by project owner)
+MIT License 
