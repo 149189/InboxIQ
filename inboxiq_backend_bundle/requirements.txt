@@ -1,0 +1,11 @@
+Django>=4.2,<5
+djangorestframework
+mysqlclient
+redis
+celery[redis]
+google-auth
+google-auth-oauthlib
+google-api-python-client
+requests
+python-dotenv
+gunicorn
