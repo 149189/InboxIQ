@@ -1,1 +1,0 @@
-Run pytest inside container: docker-compose exec web pytest
