@@ -1,11 +1,7 @@
-Django>=4.2,<5
-djangorestframework
-mysqlclient
-redis
-celery[redis]
+django-cors-headers
+django
+python-decouple
+requests
 google-auth
 google-auth-oauthlib
-google-api-python-client
-requests
-python-dotenv
-gunicorn
+google-auth-httplib2

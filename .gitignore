@@ -26,7 +26,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-
+client_secret_836817109369-o9fukeu4ocrspn9fdrvk0iitclpeujut.apps.googleusercontent.com.json
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
