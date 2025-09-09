@@ -1,0 +1,8 @@
+InboxIQ backend scaffold created.
+Apps:
+- auth_app : custom user model, simple username/password register/login, Google OAuth connect.
+- inboxiq_llm : LLM compose, window buffer memory in Redis, Draft model and Celery task to save to Gmail.
+
+Important:
+- For real deployment ensure HTTPS, secure state in OAuth flow, and encrypt tokens.
+- Replace GEMINI placeholder with official Gemini calls per their SDK/docs.
