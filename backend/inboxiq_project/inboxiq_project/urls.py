@@ -5,6 +5,5 @@ from django.urls import path, include
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('auth/', include('Oauth.urls')),  # Traditional auth endpoints
-    # Remove the duplicate oauth/ path - it's causing double prefixing
-    # path('oauth/', include('Oauth.urls')),  # Remove this line!
+    path('api/', include('gmail_agent.urls')),  # Gmail agent API endpoints
 ]

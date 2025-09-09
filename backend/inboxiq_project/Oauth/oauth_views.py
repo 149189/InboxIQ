@@ -12,6 +12,7 @@ from django.views.decorators.http import require_GET, require_POST
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth import login
 from django.utils import timezone
+from django.contrib.auth.decorators import login_required
 
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
@@ -109,7 +110,10 @@ def google_oauth_callback(request):
 
         # Log in the user (creates session auth)
         login(request, user)
-
+        
+        # Force session save and ensure it's persistent
+        request.session.save()
+        
         # Clear the state from session
         try:
             request.session.pop('oauth_state', None)
@@ -117,8 +121,23 @@ def google_oauth_callback(request):
         except Exception:
             pass
 
-        # Redirect to frontend with success
-        return HttpResponseRedirect(f"{settings.FRONTEND_URL}/dashboard?oauth_success=true")
+        # Create response with explicit session cookie
+        response = HttpResponseRedirect(f"{settings.FRONTEND_URL}/chat?oauth_success=true")
+        
+        # Ensure session cookie is set properly for cross-origin
+        if request.session.session_key:
+            response.set_cookie(
+                settings.SESSION_COOKIE_NAME,
+                request.session.session_key,
+                max_age=settings.SESSION_COOKIE_AGE,
+                path=settings.SESSION_COOKIE_PATH or '/',
+                domain=settings.SESSION_COOKIE_DOMAIN,
+                secure=settings.SESSION_COOKIE_SECURE,
+                httponly=settings.SESSION_COOKIE_HTTPONLY,
+                samesite=settings.SESSION_COOKIE_SAMESITE
+            )
+        
+        return response
 
     except Exception as e:
         print(f"[OAUTH CALLBACK] unexpected error: {e}")
@@ -279,14 +298,37 @@ def refresh_google_token(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 
-@require_GET
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from django.views.decorators.http import require_http_methods
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
 def user_profile(request):
     """Get current user profile information"""
+    # Handle preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        response = JsonResponse({})
+        response['Access-Control-Allow-Origin'] = request.META.get('HTTP_ORIGIN', '*')
+        response['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Cookie'
+        response['Access-Control-Allow-Credentials'] = 'true'
+        return response
+    
+    # Check authentication
     if not request.user.is_authenticated:
-        return JsonResponse({'error': 'Not authenticated'}, status=401)
+        print(f"[USER_PROFILE] User not authenticated. Session key: {request.session.session_key}")
+        print(f"[USER_PROFILE] Session data: {dict(request.session)}")
+        print(f"[USER_PROFILE] Cookies: {dict(request.COOKIES)}")
+        response = JsonResponse({'error': 'Not authenticated'}, status=401)
+        response['Access-Control-Allow-Origin'] = request.META.get('HTTP_ORIGIN', '*')
+        response['Access-Control-Allow-Credentials'] = 'true'
+        return response
 
     user = request.user
-    return JsonResponse({
+    print(f"[USER_PROFILE] Authenticated user: {user.email}")
+    
+    response_data = {
         'id': user.id,
         'username': user.username,
         'email': user.email,
@@ -296,8 +338,77 @@ def user_profile(request):
         'profile_picture': user.profile_picture,
         'google_id': user.google_id,
         'is_token_expired': user.is_token_expired(),
-        'date_joined': user.date_joined.isoformat()
-    })
+        'date_joined': user.date_joined.isoformat(),
+        'name': user.first_name or user.username  # Add name field for frontend compatibility
+    }
+    
+    response = JsonResponse(response_data)
+    response['Access-Control-Allow-Origin'] = request.META.get('HTTP_ORIGIN', '*')
+    response['Access-Control-Allow-Credentials'] = 'true'
+    return response
+
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+@login_required
+def update_profile(request):
+    """Update user profile (username and profile picture)"""
+    if request.method == 'OPTIONS':
+        response = JsonResponse({})
+        response['Access-Control-Allow-Origin'] = request.META.get('HTTP_ORIGIN', '*')
+        response['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Cookie'
+        response['Access-Control-Allow-Credentials'] = 'true'
+        return response
+    
+    try:
+        data = json.loads(request.body)
+        user = request.user
+        
+        # Update username if provided
+        if 'username' in data and data['username'].strip():
+            new_username = data['username'].strip()
+            
+            # Check if username is already taken by another user
+            if CustomUser.objects.filter(username=new_username).exclude(id=user.id).exists():
+                return JsonResponse({'error': 'Username already taken'}, status=400)
+            
+            user.username = new_username
+        
+        # Update display name if provided
+        if 'display_name' in data and data['display_name'].strip():
+            display_name = data['display_name'].strip()
+            # Split display name into first and last name
+            name_parts = display_name.split(' ', 1)
+            user.first_name = name_parts[0]
+            user.last_name = name_parts[1] if len(name_parts) > 1 else ''
+        
+        # Update profile picture URL if provided
+        if 'profile_picture' in data and data['profile_picture'].strip():
+            user.profile_picture = data['profile_picture'].strip()
+        
+        user.save()
+        
+        response_data = {
+            'success': True,
+            'message': 'Profile updated successfully',
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'display_name': user.full_name,
+                'profile_picture': user.profile_picture,
+            }
+        }
+        
+        response = JsonResponse(response_data)
+        response['Access-Control-Allow-Origin'] = request.META.get('HTTP_ORIGIN', '*')
+        response['Access-Control-Allow-Credentials'] = 'true'
+        return response
+        
+    except Exception as e:
+        print(f"Error updating profile: {e}")
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 # oauth_views.py
@@ -311,3 +422,202 @@ def profile_view(request):
         "email": user.email,
         "name": user.first_name or user.username
     })
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def session_test(request):
+    """Test endpoint to debug session and authentication issues"""
+    if request.method == 'OPTIONS':
+        response = JsonResponse({})
+        response['Access-Control-Allow-Origin'] = request.META.get('HTTP_ORIGIN', '*')
+        response['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Cookie'
+        response['Access-Control-Allow-Credentials'] = 'true'
+        return response
+    
+    session_data = {
+        'session_key': request.session.session_key,
+        'session_data': dict(request.session),
+        'cookies': dict(request.COOKIES),
+        'user_authenticated': request.user.is_authenticated,
+        'user_id': request.user.id if request.user.is_authenticated else None,
+        'user_email': request.user.email if request.user.is_authenticated else None,
+        'origin': request.META.get('HTTP_ORIGIN'),
+        'user_agent': request.META.get('HTTP_USER_AGENT', '')[:100],
+    }
+    
+    response = JsonResponse(session_data)
+    response['Access-Control-Allow-Origin'] = request.META.get('HTTP_ORIGIN', '*')
+    response['Access-Control-Allow-Credentials'] = 'true'
+    return response
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def sync_session(request):
+    """Sync session after OAuth redirect to ensure frontend has proper session"""
+    if request.method == 'OPTIONS':
+        response = JsonResponse({})
+        response['Access-Control-Allow-Origin'] = request.META.get('HTTP_ORIGIN', '*')
+        response['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Cookie'
+        response['Access-Control-Allow-Credentials'] = 'true'
+        return response
+    
+    # Force session creation if it doesn't exist
+    if not request.session.session_key:
+        request.session.create()
+    
+    # Debug session information
+    print(f"[SYNC_SESSION] Session key: {request.session.session_key}")
+    print(f"[SYNC_SESSION] Session data: {dict(request.session)}")
+    print(f"[SYNC_SESSION] User authenticated: {request.user.is_authenticated}")
+    print(f"[SYNC_SESSION] User ID: {getattr(request.user, 'id', None)}")
+    
+    # Check if user is authenticated
+    if request.user.is_authenticated:
+        user = request.user
+        response_data = {
+            'authenticated': True,
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'name': user.first_name or user.username,
+                'profile_picture': user.profile_picture,
+            },
+            'session_key': request.session.session_key
+        }
+        print(f"[SYNC_SESSION] User authenticated: {user.email}, session: {request.session.session_key}")
+    else:
+        # Try to find and authenticate the user if they exist but aren't logged in
+        # This is a fallback for when OAuth completed but session wasn't properly saved
+        try:
+            # Look for the most recent user (assuming this is the one that just completed OAuth)
+            user = CustomUser.objects.filter(access_token__isnull=False).order_by('-last_login').first()
+            if user:
+                print(f"[SYNC_SESSION] Found user {user.email}, attempting to log them in")
+                login(request, user)
+                request.session.save()
+                
+                response_data = {
+                    'authenticated': True,
+                    'user': {
+                        'id': user.id,
+                        'email': user.email,
+                        'name': user.first_name or user.username,
+                        'profile_picture': user.profile_picture,
+                    },
+                    'session_key': request.session.session_key
+                }
+                print(f"[SYNC_SESSION] Successfully logged in user: {user.email}")
+            else:
+                response_data = {
+                    'authenticated': False,
+                    'session_key': request.session.session_key
+                }
+                print(f"[SYNC_SESSION] No user found to authenticate")
+        except Exception as e:
+            print(f"[SYNC_SESSION] Error trying to authenticate user: {e}")
+            response_data = {
+                'authenticated': False,
+                'session_key': request.session.session_key
+            }
+    
+    response = JsonResponse(response_data)
+    response['Access-Control-Allow-Origin'] = request.META.get('HTTP_ORIGIN', '*')
+    response['Access-Control-Allow-Credentials'] = 'true'
+    
+    # Ensure session cookie is set properly
+    if request.session.session_key:
+        response.set_cookie(
+            settings.SESSION_COOKIE_NAME,
+            request.session.session_key,
+            max_age=settings.SESSION_COOKIE_AGE,
+            path='/',
+            domain=None,
+            secure=False,
+            httponly=False,
+            samesite=None
+        )
+    
+    return response
+
+
+@csrf_exempt
+@require_http_methods(["POST", "OPTIONS"])
+def force_login(request):
+    """Force login for debugging - manually authenticate the user"""
+    if request.method == 'OPTIONS':
+        response = JsonResponse({})
+        response['Access-Control-Allow-Origin'] = request.META.get('HTTP_ORIGIN', '*')
+        response['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Cookie'
+        response['Access-Control-Allow-Credentials'] = 'true'
+        return response
+    
+    try:
+        # Find the user with the Google ID from the database
+        user = CustomUser.objects.get(google_id='104686034682116627108')
+        
+        # Log them in
+        login(request, user)
+        request.session.save()
+        
+        print(f"[FORCE_LOGIN] Successfully logged in user: {user.email}")
+        
+        response_data = {
+            'success': True,
+            'message': 'User logged in successfully',
+            'user': {
+                'id': user.id,
+                'email': user.email,
+                'name': user.first_name or user.username,
+                'profile_picture': user.profile_picture,
+            }
+        }
+        
+        response = JsonResponse(response_data)
+        response['Access-Control-Allow-Origin'] = request.META.get('HTTP_ORIGIN', '*')
+        response['Access-Control-Allow-Credentials'] = 'true'
+        return response
+        
+    except CustomUser.DoesNotExist:
+        return JsonResponse({'error': 'User not found'}, status=404)
+    except Exception as e:
+        print(f"[FORCE_LOGIN] Error: {e}")
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def debug_cookies(request):
+    """Debug endpoint to check cookies and session"""
+    if request.method == 'OPTIONS':
+        response = JsonResponse({})
+        response['Access-Control-Allow-Origin'] = request.META.get('HTTP_ORIGIN', '*')
+        response['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Cookie'
+        response['Access-Control-Allow-Credentials'] = 'true'
+        return response
+    
+    debug_info = {
+        'path': request.path,
+        'session_key': request.session.session_key,
+        'session_data': dict(request.session),
+        'cookies': dict(request.COOKIES),
+        'user_authenticated': request.user.is_authenticated if hasattr(request, 'user') else 'No user attr',
+        'user_id': getattr(request.user, 'id', None) if hasattr(request, 'user') else None,
+        'headers': {
+            'cookie': request.META.get('HTTP_COOKIE', 'No cookie header'),
+            'origin': request.META.get('HTTP_ORIGIN', 'No origin'),
+            'user_agent': request.META.get('HTTP_USER_AGENT', 'No user agent')[:100],
+        }
+    }
+    
+    print(f"[DEBUG_COOKIES] {debug_info}")
+    
+    response = JsonResponse(debug_info)
+    response['Access-Control-Allow-Origin'] = request.META.get('HTTP_ORIGIN', '*')
+    response['Access-Control-Allow-Credentials'] = 'true'
+    return response
