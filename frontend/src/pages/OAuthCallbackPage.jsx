@@ -16,33 +16,45 @@ export default function OAuthCallbackPage() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        // Removed unused currentUrl variable
+        // Check for URL parameters that indicate OAuth status
         const error = searchParams.get('error')
+        const oauthSuccess = searchParams.get('oauth_success')
+        
         if (error) {
           throw new Error(`OAuth error: ${error}`)
         }
 
-        const profileResponse = await fetch('http://127.0.0.1:8000/oauth/google/profile/', {
-          credentials: 'include',
-        })
+        if (oauthSuccess === 'true') {
+          // OAuth was successful, verify by getting user profile
+          const profileResponse = await fetch('/auth/oauth/profile/', {
+            credentials: 'include',
+            headers: {
+              'Accept': 'application/json',
+            }
+          })
 
-        if (profileResponse.ok) {
-          const userData = await profileResponse.json()
-          setStatus('success')
-          setMessage(`Welcome, ${userData.first_name || userData.username}!`)
-          
-          setTimeout(() => {
-            navigate('/')
-          }, 2000)
+          if (profileResponse.ok) {
+            const userData = await profileResponse.json()
+            setStatus('success')
+            setMessage(`Welcome, ${userData.first_name || userData.username}!`)
+            
+            setTimeout(() => {
+              navigate('/')
+            }, 2000)
+          } else {
+            throw new Error('Failed to get user profile after OAuth')
+          }
         } else {
-          throw new Error('Failed to authenticate user')
+          // If we're here without oauth_success=true, something went wrong
+          throw new Error('OAuth callback completed but no success indicator found')
         }
       } catch (err) {
+        console.error('OAuth callback error:', err)
         setStatus('error')
         setMessage(err.message)
         
         setTimeout(() => {
-          navigate('/login')
+          navigate('/login?error=oauth_callback_failed')
         }, 3000)
       }
     }

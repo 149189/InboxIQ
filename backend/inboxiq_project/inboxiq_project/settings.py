@@ -141,10 +141,16 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 AUTH_USER_MODEL = 'Oauth.CustomUser'   # app_label.ModelName
 
-# Google OAuth Configuration
+# Add these corrections to your settings.py
+
+# Add these corrections to your settings.py
+
+# Google OAuth Configuration - CORRECTED URLS
 GOOGLE_OAUTH_CLIENT_ID = config('GOOGLE_OAUTH_CLIENT_ID', default='836817109369-o9fukeu4ocrspn9fdrvk0iitclpeujut.apps.googleusercontent.com')
 GOOGLE_OAUTH_CLIENT_SECRET = config('GOOGLE_OAUTH_CLIENT_SECRET', default='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')
-GOOGLE_OAUTH_REDIRECT_URI = config('GOOGLE_OAUTH_REDIRECT_URI', default='http://localhost:5173/oauth/google/callback')
+
+# FIXED: This should point to your BACKEND, not frontend
+GOOGLE_OAUTH_REDIRECT_URI = config('GOOGLE_OAUTH_REDIRECT_URI', default='http://127.0.0.1:8000/auth/oauth/google/callback/')
 
 # Frontend URL for redirects after OAuth
 FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:5173')
@@ -157,3 +163,15 @@ GOOGLE_OAUTH_SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.modify',
 ]
+
+# CORS Settings - Add both localhost and 127.0.0.1
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",  # In case you use port 3000
+]
+
+CORS_ALLOW_CREDENTIALS = True
+
+# Allow both in ALLOWED_HOSTS too
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '*']

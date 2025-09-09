@@ -16,20 +16,33 @@ export default function RegisterPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
+  const [success, setSuccess] = useState(null)
   const navigate = useNavigate()
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError(null)
+    setSuccess(null)
+    
     try {
-      const res = await fetch('http://127.0.0.1:8000/auth/register/', {
+      // Use relative URL - will be proxied to backend
+      const res = await fetch('/auth/register/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        credentials: 'include',
         body: JSON.stringify({ username, password }),
       })
+      
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Registration failed')
-      navigate('/login')
+      
+      setSuccess('Account created successfully! Redirecting to login...')
+      setTimeout(() => {
+        navigate('/login')
+      }, 2000)
     } catch (err) {
       setError(err.message)
     }
@@ -42,6 +55,7 @@ export default function RegisterPage() {
 
         <Stack spacing={3}>
           {error && <Alert severity="error">{error}</Alert>}
+          {success && <Alert severity="success">{success}</Alert>}
 
           {/* Google OAuth Button */}
           <GoogleOAuthButton 
@@ -64,6 +78,7 @@ export default function RegisterPage() {
               onChange={(e) => setUsername(e.target.value)}
               fullWidth
               required
+              helperText="Choose a unique username"
             />
             <TextField
               label="Password"
@@ -72,9 +87,12 @@ export default function RegisterPage() {
               onChange={(e) => setPassword(e.target.value)}
               fullWidth
               required
+              helperText="Use a strong password"
             />
 
-            <Button type="submit" variant="contained" color="success">Create Account</Button>
+            <Button type="submit" variant="contained" color="success">
+              Create Account
+            </Button>
           </Stack>
         </Stack>
       </Paper>

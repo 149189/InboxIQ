@@ -13,32 +13,33 @@ export default function GoogleOAuthButton({ onError }) {
     setError(null)
     
     try {
-      // Use relative path with proxy (if configured in vite.config.js)
-      const response = await fetch('/oauth/google/login/', {
+      // Use relative path - will be proxied to backend by Vite
+      const response = await fetch('/auth/oauth/google/login/', {
         method: 'GET',
         credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        }
       })
       
       if (!response.ok) {
-        throw new Error('Failed to initiate OAuth login')
+        const errorText = await response.text()
+        throw new Error(`Failed to initiate OAuth login: ${response.status} ${errorText}`)
       }
       
       const data = await response.json()
       
       if (data.auth_url) {
-        // Add a fallback in case the redirect doesn't work
-        window.location.href = data.auth_url;
-        
-        // Set a timeout to handle cases where the redirect might fail
-        setTimeout(() => {
-          setLoading(false);
-          setError('Redirect to Google authentication failed. Please check your browser settings and try again.');
-        }, 3000);
+        console.log('Redirecting to:', data.auth_url)
+        // Redirect to Google OAuth
+        window.location.href = data.auth_url
       } else {
-        throw new Error('No auth URL received from server');
+        throw new Error('No auth URL received from server')
       }
     } catch (err) {
-      setError(err.message || 'Failed to connect to authentication service. Please check your browser extensions and try again.');
+      console.error('OAuth login error:', err)
+      setError(err.message || 'Failed to connect to authentication service')
       setLoading(false)
       if (onError) onError(err.message)
     }

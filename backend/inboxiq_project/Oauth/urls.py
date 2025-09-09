@@ -1,4 +1,4 @@
-# accounts/urls.py
+# backend/inboxiq_project/Oauth/urls.py
 from django.urls import path
 from .views import register_view, login_view, logout_view
 from .oauth_views import (
@@ -9,12 +9,16 @@ from .oauth_views import (
 )
 
 urlpatterns = [
-    # Traditional auth endpoints
+    # Traditional auth endpoints (under /auth/ prefix from main urls.py)
     path('register/', register_view, name='register'),
     path('login/', login_view, name='login'),
     path('logout/', logout_view, name='logout'),
     
-    # OAuth endpoints
+    # OAuth endpoints (under /auth/ prefix from main urls.py)
+    # These will be accessible as:
+    # /auth/oauth/google/login/
+    # /auth/oauth/google/callback/
+    # etc.
     path('oauth/google/login/', google_oauth_login, name='google_oauth_login'),
     path('oauth/google/callback/', google_oauth_callback, name='google_oauth_callback'),
     path('oauth/google/refresh/', refresh_google_token, name='refresh_google_token'),
