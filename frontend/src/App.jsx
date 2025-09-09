@@ -11,6 +11,7 @@ import RegisterPage from './pages/RegisterPage'
 import OAuthCallbackPage from './pages/OAuthCallbackPage'
 
 import GoogleLoginButton from './components/GoogleLoginButton'
+import Dashboard from './pages/Dashboard' 
 
 function GoogleLoginPage() {
   return (
@@ -33,6 +34,7 @@ export default function App() {
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
             <Route path="/google-login" element={<GoogleLoginPage />} />
+            <Route path="/dashboard" element={<Dashboard />} />
           </Routes>
         </main>
         <Footer />

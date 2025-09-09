@@ -3,63 +3,52 @@ import React, { useState } from 'react'
 import Button from '@mui/material/Button'
 
 /**
- * GoogleLoginButton
+ * GoogleLoginButton (updated)
  *
- * - Fetches the backend oauth start endpoint which returns { auth_url, state }.
- * - Uses credentials: 'include' so the Django session cookie (and saved oauth_state) is set.
- * - Redirects the browser to Google (auth_url) on success.
+ * - Uses a top-level navigation to the backend start endpoint instead of fetch.
+ *   This ensures the backend's Set-Cookie (sessionid) is handled as a regular
+ *   navigation response and will be present when Google redirects back.
  *
- * NOTE:
- * - If you use a Vite proxy mapping '/accounts' -> 'http://127.0.0.1:8000',
- *   you can change BACKEND_OAUTH_START to '/accounts/oauth/google/login/'.
- * - Django must allow CORS credentials if frontend is on another origin:
- *   CORS_ALLOW_CREDENTIALS = True and CORS_ALLOWED_ORIGINS include your frontend origin.
+ * - BACKEND_OAUTH_START should point to your backend start URL that returns a
+ *   redirect to Google's auth endpoint (and sets the session cookie).
+ *
+ * - If you prefer opening the flow in a new tab, set openInNewTab={true} on the component.
  */
 
-const BACKEND_OAUTH_START = 'http://127.0.0.1:8000/accounts/oauth/google/login/'
+const BACKEND_OAUTH_START = 'http://127.0.0.1:8000/auth/oauth/google/login/'
 
-export default function GoogleLoginButton({ children = 'Continue with Google', variant = 'contained' }) {
-  const [loading, setLoading] = useState(false)
+export default function GoogleLoginButton({
+  children = 'Continue with Google',
+  variant = 'contained',
+  openInNewTab = false,
+}) {
+  const [starting, setStarting] = useState(false)
 
-  const handleClick = async () => {
-    setLoading(true)
+  const handleClick = () => {
+    setStarting(true)
+
+    // Use top-level navigation so Set-Cookie is applied correctly.
+    // We use assign() so the navigation appears in history (back button works).
+    // Optionally open in a new tab/window if requested.
     try {
-      const res = await fetch(BACKEND_OAUTH_START, {
-        method: 'GET',
-        credentials: 'include', // important: lets Django set session cookie for state verification
-        headers: {
-          'Accept': 'application/json',
-        },
-      })
-
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '')
-        throw new Error(`Server returned ${res.status} ${res.statusText} ${txt ? `: ${txt}` : ''}`)
-      }
-
-      const data = await res.json()
-      if (data?.auth_url) {
-        // Redirect the whole window to Google OAuth URL
-        window.location.href = data.auth_url
+      if (openInNewTab) {
+        window.open(BACKEND_OAUTH_START, '_blank', 'noopener,noreferrer')
       } else {
-        throw new Error('No auth_url returned from server')
+        // small timeout so loading state renders before navigation (optional)
+        setTimeout(() => {
+          window.location.assign(BACKEND_OAUTH_START)
+        }, 150)
       }
     } catch (err) {
-      console.error('OAuth start error:', err)
-      // user-friendly message
+      console.error('Failed to start OAuth navigation:', err)
       alert('Failed to start Google sign-in. See console for details.')
-    } finally {
-      setLoading(false)
+      setStarting(false)
     }
   }
 
   return (
-    <Button
-      variant={variant}
-      onClick={handleClick}
-      disabled={loading}
-    >
-      {loading ? 'Starting...' : children}
+    <Button onClick={handleClick} variant={variant} disabled={starting}>
+      {starting ? 'Starting…' : children}
     </Button>
   )
 }

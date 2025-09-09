@@ -175,3 +175,5 @@ CORS_ALLOW_CREDENTIALS = True
 
 # Allow both in ALLOWED_HOSTS too
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', '*']
+SESSION_COOKIE_SAMESITE = 'Lax'   # Lax usually OK
+SESSION_COOKIE_SECURE = False     # dev only; True on HTTPS production

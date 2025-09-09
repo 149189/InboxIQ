@@ -5,6 +5,7 @@ from django.views.decorators.http import require_POST
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth import authenticate, login, logout
 from .models import CustomUser
+from django.contrib.auth.decorators import login_required
 
 @csrf_exempt
 @require_POST
@@ -55,3 +56,14 @@ def login_view(request):
 def logout_view(request):
     logout(request)
     return JsonResponse({'message': 'logged out'})
+
+
+
+@login_required
+def profile_view(request):
+    user = request.user
+    return JsonResponse({
+        "id": user.id,
+        "email": user.email,
+        "name": user.get_full_name() or user.username,
+    })
