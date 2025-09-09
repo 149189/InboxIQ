@@ -10,9 +10,31 @@ class GeminiService:
     """Service class for interacting with Google Gemini API"""
     
     def __init__(self):
-        # Configure Gemini API
-        genai.configure(api_key=settings.GEMINI_API_KEY)
-        self.model = genai.GenerativeModel('gemini-pro')
+        # Configure Gemini API - Direct key application
+        self.api_key = settings.GEMINI_API_KEY
+        
+        # Also try to get from environment directly as fallback
+        if not self.api_key or self.api_key == 'your-gemini-api-key-here':
+            import os
+            self.api_key = os.getenv('GEMINI_API_KEY', 'AIzaSyDKzHLs-bthDsnHIuFVIPwq05ceuqO22FY')
+        
+        print(f"[GEMINI] API Key configured: {self.api_key[:10]}..." if self.api_key else "[GEMINI] No API key found")
+        print(f"[GEMINI] Full API key check: {self.api_key}")
+        
+        if self.api_key and self.api_key != 'your-gemini-api-key-here':
+            try:
+                genai.configure(api_key=self.api_key)
+                self.model = genai.GenerativeModel('gemini-pro')
+                self.use_mock = False
+                print("[GEMINI] Successfully configured with real API key")
+            except Exception as e:
+                print(f"[GEMINI] Error configuring API: {e}")
+                self.model = None
+                self.use_mock = True
+        else:
+            print("[GEMINI] Using mock responses - configure GEMINI_API_KEY for real AI")
+            self.model = None
+            self.use_mock = True
         
     def analyze_user_intent(self, message: str) -> Dict:
         """
@@ -23,6 +45,9 @@ class GeminiService:
             'email_context': str | None
         }
         """
+        if self.use_mock:
+            return self._mock_analyze_intent(message)
+        
         prompt = f"""
         Analyze the following user message and determine if they want to:
         1. Have a normal conversation (intent: "chat")
@@ -58,6 +83,9 @@ class GeminiService:
     
     def generate_chat_response(self, message: str, chat_history: List[Dict] = None) -> str:
         """Generate a normal chat response using Gemini"""
+        
+        if self.use_mock:
+            return self._mock_chat_response(message)
         
         # Build conversation context
         context = "You are InboxIQ, an intelligent email assistant. You help users with general questions and email composition. Be helpful, friendly, and concise.\n\n"
@@ -190,3 +218,59 @@ class GeminiService:
                 if len(word) > 2 and word.lower() not in ['the', 'and', 'or', 'to', 'from']:
                     terms.append(word)
             return terms
+    
+    def _mock_analyze_intent(self, message: str) -> Dict:
+        """Mock intent analysis for testing without API key"""
+        message_lower = message.lower()
+        
+        # Simple keyword-based intent detection
+        email_keywords = ['send email', 'email', 'write to', 'message', 'mail', 'compose']
+        
+        if any(keyword in message_lower for keyword in email_keywords):
+            # Extract recipient info (simple pattern matching)
+            words = message.split()
+            recipient_info = None
+            email_context = message
+            
+            # Look for "to [name]" pattern
+            if 'to ' in message_lower:
+                to_index = message_lower.find('to ')
+                after_to = message[to_index + 3:].strip()
+                # Get the next few words as recipient
+                recipient_words = after_to.split()[:3]  # Take up to 3 words
+                recipient_info = ' '.join(recipient_words)
+                
+                # Remove common words
+                for word in ['about', 'regarding', 'concerning']:
+                    if word in recipient_info.lower():
+                        recipient_info = recipient_info.split(word)[0].strip()
+                        break
+            
+            return {
+                'intent': 'email',
+                'recipient_info': recipient_info,
+                'email_context': email_context,
+                'confidence': 0.8
+            }
+        else:
+            return {
+                'intent': 'chat',
+                'recipient_info': None,
+                'email_context': None,
+                'confidence': 0.9
+            }
+    
+    def _mock_chat_response(self, message: str) -> str:
+        """Mock chat response for testing without API key"""
+        message_lower = message.lower()
+        
+        if 'hello' in message_lower or 'hi' in message_lower:
+            return "Hello! I'm InboxIQ, your intelligent email assistant. I can help you with general questions or compose and send emails. How can I assist you today?"
+        elif 'help' in message_lower:
+            return "I can help you with:\n• General questions and conversations\n• Composing and sending emails\n• Finding contacts in your Gmail\n\nJust tell me what you need!"
+        elif 'email' in message_lower:
+            return "I'd be happy to help you with email! You can say something like 'Send an email to John about the meeting' and I'll help you compose and send it."
+        elif 'thank' in message_lower:
+            return "You're welcome! Is there anything else I can help you with?"
+        else:
+            return "I understand you're asking about that. While I'm running in demo mode (Gemini API not configured), I can still help you compose and send emails. Try saying 'Send an email to [person] about [topic]'!"

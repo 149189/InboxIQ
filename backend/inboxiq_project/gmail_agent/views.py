@@ -115,10 +115,42 @@ def send_message(request):
         )
         
         # Initialize Gemini service
-        gemini_service = GeminiService()
+        try:
+            print(f"[SEND_MESSAGE] Initializing Gemini service...")
+            gemini_service = GeminiService()
+            print(f"[SEND_MESSAGE] Gemini service initialized successfully")
+        except Exception as e:
+            print(f"[SEND_MESSAGE] Error initializing Gemini service: {e}")
+            import traceback
+            traceback.print_exc()
+            # Return error response
+            return JsonResponse({
+                'message': {
+                    'id': None,
+                    'type': 'assistant',
+                    'content': f"I'm having trouble initializing the AI service: {str(e)}. Please try again.",
+                    'timestamp': None
+                }
+            })
         
         # Analyze user intent
-        intent_analysis = gemini_service.analyze_user_intent(message_content)
+        try:
+            print(f"[SEND_MESSAGE] Analyzing message: {message_content}")
+            intent_analysis = gemini_service.analyze_user_intent(message_content)
+            print(f"[SEND_MESSAGE] Intent analysis result: {intent_analysis}")
+        except Exception as e:
+            print(f"[SEND_MESSAGE] Error analyzing intent: {e}")
+            import traceback
+            traceback.print_exc()
+            # Return error response
+            return JsonResponse({
+                'message': {
+                    'id': None,
+                    'type': 'assistant',
+                    'content': f"I'm having trouble analyzing your message: {str(e)}. Please try again.",
+                    'timestamp': None
+                }
+            })
         
         if intent_analysis['intent'] == 'email' and intent_analysis['confidence'] > 0.7:
             # Handle email composition

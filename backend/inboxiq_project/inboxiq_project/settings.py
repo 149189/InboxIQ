@@ -6,6 +6,10 @@ Updated with CORS and session fixes for OAuth flow.
 
 from pathlib import Path
 from decouple import config
+import pymysql
+
+# Install PyMySQL as MySQLdb to use with Django
+pymysql.install_as_MySQLdb()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -63,17 +67,18 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'inboxiq_project.wsgi.application'
 
-# Database
+# Database - Using PyMySQL with Django's MySQL backend
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'gmail_agent',
-        'USER': 'root',
-        'PASSWORD': 'Kaustubh@149',
-        'HOST': '127.0.0.1',
-        'PORT': '3306',
+        'NAME': config('DB_NAME', default='gmail_agent'),
+        'USER': config('DB_USER', default='root'),
+        'PASSWORD': config('DB_PASSWORD', default='Kaustubh@149'),
+        'HOST': config('DB_HOST', default='127.0.0.1'),
+        'PORT': config('DB_PORT', default='3306'),
         'OPTIONS': {
             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+            'charset': 'utf8mb4',
         },
     }
 }
@@ -111,8 +116,8 @@ AUTH_USER_MODEL = 'Oauth.CustomUser'
 GOOGLE_OAUTH_CLIENT_ID = config('GOOGLE_OAUTH_CLIENT_ID', default='836817109369-o9fukeu4ocrspn9fdrvk0iitclpeujut.apps.googleusercontent.com')
 GOOGLE_OAUTH_CLIENT_SECRET = config('GOOGLE_OAUTH_CLIENT_SECRET', default='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')
 
-# Gemini API Configuration
-GEMINI_API_KEY = config('GEMINI_API_KEY', default='your-gemini-api-key-here')
+# Gemini API Configuration - Direct key application
+GEMINI_API_KEY = config('GEMINI_API_KEY', default='AIzaSyDKzHLs-bthDsnHIuFVIPwq05ceuqO22FY')
 
 # OAuth redirect URI - points to backend
 GOOGLE_OAUTH_REDIRECT_URI = config('GOOGLE_OAUTH_REDIRECT_URI', default='http://127.0.0.1:8000/auth/oauth/google/callback/')
