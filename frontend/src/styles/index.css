@@ -1,0 +1,25 @@
+/* src/styles/index.css */
+
+/* 1) Tailwind directives */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 2) Optional tiny defaults to avoid everything hugging the left edge
+   (these are fallback helpers; once Tailwind loads you can remove them) */
+:root {
+    --app-max-width: 1200px;
+}
+
+html,
+body,
+#root {
+    height: 100%;
+}
+
+body {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    margin: 0;
+    padding: 0;
+    background-color: #f8fafc;
+}
