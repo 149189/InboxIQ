@@ -1,7 +1,0 @@
-django-cors-headers
-django
-python-decouple
-requests
-google-auth
-google-auth-oauthlib
-google-auth-httplib2

@@ -53,10 +53,6 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -171,9 +167,16 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # In case you use port 3000
 ]
 
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
 CORS_ALLOW_CREDENTIALS = True
 
 # Allow both in ALLOWED_HOSTS too
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', '*']
-SESSION_COOKIE_SAMESITE = 'Lax'   # Lax usually OK
-SESSION_COOKIE_SECURE = False     # dev only; True on HTTPS production
+
+SESSION_COOKIE_SAMESITE = "None"   # not 'Lax'
+SESSION_COOKIE_SECURE = False      # keep False for localhost, set True on HTTPS
+

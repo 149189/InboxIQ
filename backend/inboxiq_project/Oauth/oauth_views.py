@@ -298,3 +298,16 @@ def user_profile(request):
         'is_token_expired': user.is_token_expired(),
         'date_joined': user.date_joined.isoformat()
     })
+
+
+# oauth_views.py
+from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
+
+@login_required
+def profile_view(request):
+    user = request.user
+    return JsonResponse({
+        "email": user.email,
+        "name": user.first_name or user.username
+    })

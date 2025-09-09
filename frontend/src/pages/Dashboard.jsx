@@ -1,138 +1,103 @@
 // src/pages/Dashboard.jsx
-import React, { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import Box from '@mui/material/Box'
-import Avatar from '@mui/material/Avatar'
-import Typography from '@mui/material/Typography'
-import Button from '@mui/material/Button'
-import CircularProgress from '@mui/material/CircularProgress'
-import Paper from '@mui/material/Paper'
-import Stack from '@mui/material/Stack'
-
-const PROFILE_URL = 'http://127.0.0.1:8000/auth/oauth/profile/'
-const LOGOUT_URL = 'http://127.0.0.1:8000/auth/logout/'
+import React, { useEffect, useState } from "react";
+import { Button, CircularProgress, Typography, Box } from "@mui/material";
 
 export default function Dashboard() {
-  const [loading, setLoading] = useState(true)
-  const [profile, setProfile] = useState(null)
-  const [error, setError] = useState(null)
-  const navigate = useNavigate()
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    let mounted = true
     const fetchProfile = async () => {
-      setLoading(true)
-      setError(null)
       try {
-        const res = await fetch(PROFILE_URL, {
-          method: 'GET',
-          credentials: 'include',
-          headers: { Accept: 'application/json' }
-        })
-
-        if (res.status === 401) {
-          // not authenticated — go to login
-          if (mounted) navigate('/login')
-          return
-        }
+        const res = await fetch("http://127.0.0.1:8000/auth/oauth/profile/", {
+          method: "GET",
+          credentials: "include", // include cookies (sessionid)
+          headers: {
+            Accept: "application/json",
+          },
+        });
 
         if (!res.ok) {
-          const txt = await res.text().catch(() => '')
-          throw new Error(`Failed to load profile (${res.status}) ${txt}`)
+          throw new Error(`Profile fetch failed: ${res.status}`);
         }
 
-        const data = await res.json()
-        if (mounted) setProfile(data)
+        const data = await res.json();
+        setProfile(data);
       } catch (err) {
-        console.error('Profile fetch error:', err)
-        if (mounted) setError(err.message || 'Failed to load profile')
+        console.error("Profile error:", err);
+        setError(err.message);
       } finally {
-        if (mounted) setLoading(false)
+        setLoading(false);
       }
-    }
+    };
 
-    fetchProfile()
-    return () => { mounted = false }
-  }, [navigate])
+    fetchProfile();
+  }, []);
 
   const handleLogout = async () => {
     try {
-      const res = await fetch(LOGOUT_URL, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-      })
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '')
-        throw new Error(`Logout failed (${res.status}) ${txt}`)
-      }
-      // go back to home after logout
-      navigate('/')
+      await fetch("http://127.0.0.1:8000/auth/logout/", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "X-CSRFToken": getCookie("csrftoken"), // if CSRF protection is enabled
+        },
+      });
+      window.location.href = "/login";
     } catch (err) {
-      console.error(err)
-      alert('Logout failed — check console')
+      console.error("Logout failed:", err);
     }
-  }
+  };
+
+  // Helper: get CSRF token from cookie
+  const getCookie = (name) => {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== "") {
+      const cookies = document.cookie.split(";");
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.startsWith(name + "=")) {
+          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+          break;
+        }
+      }
+    }
+    return cookieValue;
+  };
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
+      <Box display="flex" justifyContent="center" alignItems="center" height="100vh">
         <CircularProgress />
       </Box>
-    )
+    );
   }
 
   if (error) {
     return (
-      <Box sx={{ maxWidth: 800, mx: 'auto', mt: 8 }}>
-        <Paper sx={{ p: 4 }}>
-          <Typography variant="h6" color="error">Error</Typography>
-          <Typography variant="body2" sx={{ mt: 1 }}>{error}</Typography>
-          <Button sx={{ mt: 2 }} variant="contained" onClick={() => window.location.reload()}>Retry</Button>
-        </Paper>
+      <Box textAlign="center" mt={10}>
+        <Typography variant="h6" color="error">
+          Failed to load profile: {error}
+        </Typography>
       </Box>
-    )
-  }
-
-  if (!profile) {
-    return null
+    );
   }
 
   return (
-    <Box sx={{ maxWidth: 900, mx: 'auto', px: 2, py: 6 }}>
-      <Paper sx={{ p: { xs: 3, md: 6 } }}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={4} alignItems="center">
-          <Avatar
-            alt={profile.full_name || profile.username}
-            src={profile.profile_picture || ''}
-            sx={{ width: 96, height: 96 }}
-          />
-          <Box sx={{ flex: 1 }}>
-            <Typography variant="h4" component="h1">
-              Hello, {profile.full_name || profile.username} 👋
-            </Typography>
-            {profile.email && <Typography color="text.secondary" sx={{ mt: 1 }}>{profile.email}</Typography>}
-            <Typography variant="body2" sx={{ mt: 1, color: 'text.secondary' }}>
-              Joined: {profile.date_joined ? new Date(profile.date_joined).toLocaleString() : '—'}
-            </Typography>
-          </Box>
+    <Box textAlign="center" mt={10}>
+      <Typography variant="h4">
+        Hello {profile?.name || profile?.email} 👋
+      </Typography>
+      <Typography variant="subtitle1" mt={2}>
+        Welcome to your dashboard!
+      </Typography>
 
-          <Box>
-            <Button variant="contained" color="primary" onClick={() => navigate('/')} sx={{ mr: 2 }}>
-              Home
-            </Button>
-            <Button variant="outlined" color="error" onClick={handleLogout}>Logout</Button>
-          </Box>
-        </Stack>
-      </Paper>
-
-      {/* Optional profile raw JSON for debugging */}
-      <Box sx={{ mt: 4 }}>
-        <Paper sx={{ p: 2, backgroundColor: '#fafafa' }}>
-          <Typography variant="subtitle2">Session profile (debug)</Typography>
-          <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>{JSON.stringify(profile, null, 2)}</pre>
-        </Paper>
+      <Box mt={4}>
+        <Button variant="contained" color="secondary" onClick={handleLogout}>
+          Logout
+        </Button>
       </Box>
     </Box>
-  )
+  );
 }
