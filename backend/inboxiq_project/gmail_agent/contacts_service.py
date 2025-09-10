@@ -1,262 +1,178 @@
-# backend/inboxiq_project/gmail_agent/contacts_service.py
-import requests
-from typing import List, Dict, Optional
-from django.conf import settings
-from .models import ContactCache
-import json
+# gmail_agent/contacts_service.py
+import re
+from difflib import SequenceMatcher
+from django.db import transaction
 
+from .models import ContactCache  # adjust import if models in different path
+
+# If you use googleapiclient, ensure it's installed and OAuth token scopes include contacts
+# pip install google-api-python-client google-auth
 
 class GoogleContactsService:
-    """Service for interacting with Google Contacts API"""
-    
-    def __init__(self, access_token: str):
+    def __init__(self, access_token):
         self.access_token = access_token
-        self.base_url = "https://people.googleapis.com/v1"
-        self.headers = {
-            'Authorization': f'Bearer {access_token}',
-            'Content-Type': 'application/json'
-        }
-    
-    def search_contacts(self, user, search_terms: List[str]) -> List[Dict]:
-        """
-        Search for contacts using multiple search terms
-        Returns list of contact matches with confidence scores
-        """
-        all_matches = []
-        
-        for term in search_terms:
-            matches = self._search_single_term(user, term)
-            for match in matches:
-                # Add search term that found this contact
-                match['found_by_term'] = term
-                all_matches.append(match)
-        
-        # Remove duplicates and rank by relevance
-        unique_matches = self._deduplicate_contacts(all_matches)
-        ranked_matches = self._rank_contacts(unique_matches, search_terms)
-        
-        return ranked_matches[:5]  # Return top 5 matches
-    
-    def _search_single_term(self, user, search_term: str) -> List[Dict]:
-        """Search contacts for a single term"""
+
+    def _build_people_service(self):
         try:
-            # First try to get from cache
-            cached_contacts = ContactCache.objects.filter(
-                user=user,
-                name__icontains=search_term
-            )
-            
-            if cached_contacts.exists():
-                return [self._format_cached_contact(contact) for contact in cached_contacts]
-            
-            # If not in cache, search via API
-            url = f"{self.base_url}/people:searchContacts"
-            params = {
-                'query': search_term,
-                'readMask': 'names,emailAddresses,phoneNumbers,photos'
-            }
-            
-            response = requests.get(url, headers=self.headers, params=params)
-            
-            if response.status_code == 200:
-                data = response.json()
-                contacts = []
-                
-                for result in data.get('results', []):
-                    person = result.get('person', {})
-                    contact_info = self._extract_contact_info(person)
-                    if contact_info:
-                        # Cache the contact
-                        self._cache_contact(user, person, contact_info)
-                        contacts.append(contact_info)
-                
-                return contacts
-            else:
-                print(f"Error searching contacts: {response.status_code} - {response.text}")
-                return []
-                
+            from google.oauth2.credentials import Credentials
+            from googleapiclient.discovery import build
+            creds = Credentials(token=self.access_token)
+            service = build('people', 'v1', credentials=creds, cache_discovery=False)
+            return service
         except Exception as e:
-            print(f"Error in contact search: {e}")
-            return []
-    
-    def _extract_contact_info(self, person: Dict) -> Optional[Dict]:
-        """Extract relevant information from Google People API person object"""
-        try:
-            # Get name
-            names = person.get('names', [])
-            if not names:
-                return None
-            
-            display_name = names[0].get('displayName', '')
-            given_name = names[0].get('givenName', '')
-            family_name = names[0].get('familyName', '')
-            
-            # Get email addresses
-            email_addresses = person.get('emailAddresses', [])
-            primary_email = None
-            all_emails = []
-            
-            for email in email_addresses:
-                email_addr = email.get('value', '')
-                if email_addr:
-                    all_emails.append(email_addr)
-                    if not primary_email or email.get('metadata', {}).get('primary', False):
-                        primary_email = email_addr
-            
-            if not primary_email and all_emails:
-                primary_email = all_emails[0]
-            
-            if not primary_email:
-                return None
-            
-            # Get phone numbers
-            phone_numbers = person.get('phoneNumbers', [])
-            primary_phone = phone_numbers[0].get('value', '') if phone_numbers else ''
-            
-            # Get photo
-            photos = person.get('photos', [])
-            photo_url = photos[0].get('url', '') if photos else ''
-            
-            return {
-                'resource_name': person.get('resourceName', ''),
-                'display_name': display_name,
-                'given_name': given_name,
-                'family_name': family_name,
-                'primary_email': primary_email,
-                'all_emails': all_emails,
-                'primary_phone': primary_phone,
-                'photo_url': photo_url,
-                'confidence': 1.0,  # Will be adjusted by ranking algorithm
-                'raw_data': person
-            }
-            
-        except Exception as e:
-            print(f"Error extracting contact info: {e}")
+            print(f"[CONTACTS] Failed to build People API client: {e}")
             return None
-    
-    def _cache_contact(self, user, person_data: Dict, contact_info: Dict):
-        """Cache contact information for faster future searches"""
+
+    def _is_email(self, term: str) -> bool:
+        return bool(re.match(r"[^@]+@[^@]+\.[^@]+", term))
+
+    def _similarity(self, a: str, b: str) -> float:
+        if not a or not b:
+            return 0.0
+        return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
+    def fetch_all_contacts_from_api(self, page_size=2000):
+        """Fetch connections from People API. Returns list of dicts."""
+        service = self._build_people_service()
+        contacts = []
+        if not service:
+            print("[CONTACTS] People API service not available")
+            return contacts
+
         try:
-            resource_name = person_data.get('resourceName', '')
-            contact_id = resource_name.split('/')[-1] if resource_name else ''
-            
-            if not contact_id:
-                return
-            
-            ContactCache.objects.update_or_create(
-                user=user,
-                contact_id=contact_id,
-                defaults={
-                    'name': contact_info['display_name'],
-                    'email': contact_info['primary_email'],
-                    'phone': contact_info['primary_phone'],
-                    'contact_data': person_data
-                }
+            req = service.people().connections().list(
+                resourceName='people/me',
+                personFields='names,emailAddresses,photos',
+                pageSize=page_size
             )
+            while req:
+                res = req.execute()
+                connections = res.get('connections', [])
+                for p in connections:
+                    names = p.get('names', [])
+                    emails = p.get('emailAddresses', [])
+                    photos = p.get('photos', [])
+                    display_name = names[0].get('displayName') if names else ''
+                    primary_email = emails[0].get('value') if emails else ''
+                    photo_url = photos[0].get('url') if photos else ''
+                    contacts.append({
+                        'display_name': display_name,
+                        'primary_email': primary_email,
+                        'photo_url': photo_url
+                    })
+                # Use people().connections().list_next if available
+                try:
+                    req = service.people().connections().list_next(req, res)
+                except Exception:
+                    req = None
         except Exception as e:
-            print(f"Error caching contact: {e}")
-    
-    def _format_cached_contact(self, cached_contact: ContactCache) -> Dict:
-        """Format cached contact for consistent return format"""
-        return {
-            'resource_name': f"people/{cached_contact.contact_id}",
-            'display_name': cached_contact.name,
-            'given_name': cached_contact.contact_data.get('names', [{}])[0].get('givenName', ''),
-            'family_name': cached_contact.contact_data.get('names', [{}])[0].get('familyName', ''),
-            'primary_email': cached_contact.email,
-            'all_emails': [cached_contact.email],
-            'primary_phone': cached_contact.phone,
-            'photo_url': '',
-            'confidence': 1.0,
-            'raw_data': cached_contact.contact_data,
-            'from_cache': True
-        }
-    
-    def _deduplicate_contacts(self, contacts: List[Dict]) -> List[Dict]:
-        """Remove duplicate contacts based on email address"""
-        seen_emails = set()
-        unique_contacts = []
-        
-        for contact in contacts:
-            email = contact['primary_email'].lower()
-            if email not in seen_emails:
-                seen_emails.add(email)
-                unique_contacts.append(contact)
-        
-        return unique_contacts
-    
-    def _rank_contacts(self, contacts: List[Dict], search_terms: List[str]) -> List[Dict]:
-        """Rank contacts by relevance to search terms"""
-        for contact in contacts:
-            score = 0
-            name_lower = contact['display_name'].lower()
-            
-            # Higher score for exact matches
-            for i, term in enumerate(search_terms):
-                term_lower = term.lower()
-                
-                # Exact name match gets highest score
-                if term_lower == name_lower:
-                    score += 100 - (i * 10)  # Earlier terms get higher score
-                # Name contains term
-                elif term_lower in name_lower:
-                    score += 50 - (i * 5)
-                # Term contains name (for partial matches)
-                elif name_lower in term_lower:
-                    score += 30 - (i * 3)
-                
-                # Check individual name parts
-                given_name = contact.get('given_name', '').lower()
-                family_name = contact.get('family_name', '').lower()
-                
-                if term_lower == given_name or term_lower == family_name:
-                    score += 40 - (i * 4)
-            
-            contact['confidence'] = min(score / 100.0, 1.0)  # Normalize to 0-1
-        
-        # Sort by confidence score
-        return sorted(contacts, key=lambda x: x['confidence'], reverse=True)
-    
-    def refresh_contacts_cache(self, user) -> int:
-        """Refresh the entire contacts cache for a user"""
+            print(f"[CONTACTS] Error fetching contacts via People API: {e}")
+
+        return contacts
+
+    def _filter_contacts(self, contacts, search_terms, threshold=0.60):
+        """Filter and rank contacts given search terms. Returns sorted list."""
+        results = []
+        seen = set()
+        for c in contacts:
+            name = (c.get('display_name') or '').strip()
+            email = (c.get('primary_email') or '').strip()
+            best_score = 0.0
+            for term in search_terms:
+                term = term.strip()
+                if not term:
+                    continue
+                # exact email match highest priority
+                if email and term.lower() == email.lower():
+                    best_score = 1.0
+                    break
+                # substring match
+                if term.lower() in name.lower() or term.lower() in email.lower():
+                    best_score = max(best_score, 0.9)
+                else:
+                    name_sim = self._similarity(name, term) if name else 0.0
+                    email_sim = self._similarity(email, term) if email else 0.0
+                    best_score = max(best_score, name_sim, email_sim)
+            if best_score >= threshold:
+                key = (email.lower() if email else name.lower())
+                if key not in seen:
+                    seen.add(key)
+                    results.append((best_score, c))
+        results.sort(key=lambda x: x[0], reverse=True)
+        return [r[1] for r in results]
+
+    def _search_contactcache_db(self, user, search_terms):
+        """Search ContactCache DB for quick lookup (if you maintain a cache)."""
         try:
-            # Clear existing cache
-            ContactCache.objects.filter(user=user).delete()
-            
-            # Fetch all contacts
-            url = f"{self.base_url}/people/me/connections"
-            params = {
-                'personFields': 'names,emailAddresses,phoneNumbers,photos',
-                'pageSize': 1000
-            }
-            
-            total_cached = 0
-            next_page_token = None
-            
-            while True:
-                if next_page_token:
-                    params['pageToken'] = next_page_token
-                
-                response = requests.get(url, headers=self.headers, params=params)
-                
-                if response.status_code != 200:
-                    break
-                
-                data = response.json()
-                connections = data.get('connections', [])
-                
-                for person in connections:
-                    contact_info = self._extract_contact_info(person)
-                    if contact_info:
-                        self._cache_contact(user, person, contact_info)
-                        total_cached += 1
-                
-                next_page_token = data.get('nextPageToken')
-                if not next_page_token:
-                    break
-            
-            return total_cached
-            
+            qs = ContactCache.objects.filter(user=user)
+            found = []
+            for c in qs:
+                cn = {'display_name': c.display_name or '', 'primary_email': c.primary_email or '', 'photo_url': c.photo_url or ''}
+                if any((t.lower() in (cn['display_name'] or '').lower()) or (t.lower() in (cn['primary_email'] or '').lower()) for t in search_terms):
+                    found.append(cn)
+            return found
         except Exception as e:
-            print(f"Error refreshing contacts cache: {e}")
-            return 0
+            print(f"[CONTACTS] DB cache search error: {e}")
+            return []
+
+    def _maybe_update_cache(self, user, contacts):
+        """Optional: update ContactCache entries (best-effort)."""
+        try:
+            with transaction.atomic():
+                for c in contacts:
+                    if not c.get('primary_email'):
+                        continue
+                    ContactCache.objects.update_or_create(
+                        user=user, primary_email=c['primary_email'],
+                        defaults={'display_name': c.get('display_name', ''), 'photo_url': c.get('photo_url', '')}
+                    )
+        except Exception as e:
+            print(f"[CONTACTS] Failed to update cache: {e}")
+
+    def search_contacts(self, user, search_terms):
+        """
+        Main entry point:
+        - If any term looks like an email, do quick exact-match cache lookup.
+        - Else fetch People API contacts and filter locally.
+        - Fallback to DB cache search.
+        Returns list of dicts: [{'display_name','primary_email','photo_url'}, ...]
+        """
+        if not search_terms:
+            print("[CONTACTS] No search_terms provided")
+            return []
+
+        search_terms = [str(t).strip() for t in search_terms if t and str(t).strip()]
+        print(f"[CONTACTS] search_contacts called with terms={search_terms!r}")
+
+        # If any term is an explicit email, try exact-match cache first
+        for term in search_terms:
+            if self._is_email(term):
+                try:
+                    cached = ContactCache.objects.filter(user=user, primary_email__iexact=term)
+                    if cached.exists():
+                        res = [{
+                            'display_name': c.display_name,
+                            'primary_email': c.primary_email,
+                            'photo_url': c.photo_url
+                        } for c in cached]
+                        print(f"[CONTACTS] Found {len(res)} matches in ContactCache for email {term}")
+                        return res
+                except Exception as e:
+                    print(f"[CONTACTS] ContactCache query failed: {e}")
+
+        # Try People API
+        contacts = self.fetch_all_contacts_from_api()
+        print(f"[CONTACTS] fetch_all_contacts_from_api returned {len(contacts)} contacts")
+        if contacts:
+            try:
+                self._maybe_update_cache(user, contacts)
+            except Exception:
+                pass
+            filtered = self._filter_contacts(contacts, search_terms)
+            print(f"[CONTACTS] Filtered down to {len(filtered)} matches")
+            return filtered
+
+        # Fallback: search local cache DB
+        cached_found = self._search_contactcache_db(user, search_terms)
+        print(f"[CONTACTS] DB cache fallback found {len(cached_found)} matches")
+        return cached_found

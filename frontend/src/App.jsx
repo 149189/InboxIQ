@@ -22,6 +22,24 @@ function GoogleLoginPage() {
   )
 }
 
+// Component to handle OAuth redirects that hit the frontend by mistake
+function OAuthRedirectHandler() {
+  React.useEffect(() => {
+    // Redirect to the correct backend URL with all query parameters
+    const currentUrl = new URL(window.location.href)
+    const backendUrl = `http://127.0.0.1:8000/auth${currentUrl.pathname}${currentUrl.search}`
+    
+    console.log('Redirecting OAuth callback to backend:', backendUrl)
+    window.location.replace(backendUrl)
+  }, [])
+
+  return (
+    <div style={{ padding: '2rem', textAlign: 'center' }}>
+      <p>Redirecting OAuth callback to backend...</p>
+    </div>
+  )
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -33,6 +51,7 @@ export default function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
+            <Route path="/oauth/google/callback" element={<OAuthRedirectHandler />} />
             <Route path="/google-login" element={<GoogleLoginPage />} />
             <Route path="/chat" element={<Chat />} />
           </Routes>

@@ -7,164 +7,111 @@ import requests
 from typing import Dict, Optional
 
 
+class GmailServiceError(Exception):
+    """Raised when Gmail API returns an error response."""
+
+
 class GmailService:
     """Service for interacting with Gmail API"""
-    
+
     def __init__(self, access_token: str):
         self.access_token = access_token
         self.base_url = "https://gmail.googleapis.com/gmail/v1"
         self.headers = {
-            'Authorization': f'Bearer {access_token}',
-            'Content-Type': 'application/json'
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
         }
-    
-    def create_draft(self, to_email: str, subject: str, body: str, 
-                    from_email: str = None) -> Optional[str]:
-        """
-        Create a draft email in Gmail
-        Returns draft ID if successful
-        """
+
+    # ---------------------------
+    # Internal HTTP helper
+    # ---------------------------
+    def _request(self, method: str, url: str, **kwargs) -> Dict:
         try:
-            # Create the email message
-            message = MIMEMultipart()
-            message['to'] = to_email
-            message['subject'] = subject
-            if from_email:
-                message['from'] = from_email
-            
-            # Add body
-            message.attach(MIMEText(body, 'plain'))
-            
-            # Encode the message
-            raw_message = base64.urlsafe_b64encode(
-                message.as_bytes()
-            ).decode('utf-8')
-            
-            # Create draft via API
-            url = f"{self.base_url}/users/me/drafts"
-            draft_data = {
-                'message': {
-                    'raw': raw_message
-                }
-            }
-            
-            response = requests.post(url, headers=self.headers, json=draft_data)
-            
-            if response.status_code == 200:
-                draft_info = response.json()
-                return draft_info.get('id')
-            else:
-                print(f"Error creating draft: {response.status_code} - {response.text}")
-                return None
-                
-        except Exception as e:
-            print(f"Error creating draft: {e}")
-            return None
-    
-    def send_draft(self, draft_id: str) -> Optional[str]:
-        """
-        Send a draft email
-        Returns message ID if successful
-        """
-        try:
-            url = f"{self.base_url}/users/me/drafts/{draft_id}/send"
-            
-            response = requests.post(url, headers=self.headers)
-            
-            if response.status_code == 200:
-                message_info = response.json()
-                return message_info.get('id')
-            else:
-                print(f"Error sending draft: {response.status_code} - {response.text}")
-                return None
-                
-        except Exception as e:
-            print(f"Error sending draft: {e}")
-            return None
-    
-    def send_email_directly(self, to_email: str, subject: str, body: str,
-                          from_email: str = None) -> Optional[str]:
-        """
-        Send an email directly without creating a draft first
-        Returns message ID if successful
-        """
-        try:
-            # Create the email message
-            message = MIMEMultipart()
-            message['to'] = to_email
-            message['subject'] = subject
-            if from_email:
-                message['from'] = from_email
-            
-            # Add body
-            message.attach(MIMEText(body, 'plain'))
-            
-            # Encode the message
-            raw_message = base64.urlsafe_b64encode(
-                message.as_bytes()
-            ).decode('utf-8')
-            
-            # Send via API
-            url = f"{self.base_url}/users/me/messages/send"
-            message_data = {
-                'raw': raw_message
-            }
-            
-            response = requests.post(url, headers=self.headers, json=message_data)
-            
-            if response.status_code == 200:
-                message_info = response.json()
-                return message_info.get('id')
-            else:
-                print(f"Error sending email: {response.status_code} - {response.text}")
-                return None
-                
-        except Exception as e:
-            print(f"Error sending email: {e}")
-            return None
-    
-    def delete_draft(self, draft_id: str) -> bool:
-        """Delete a draft email"""
-        try:
-            url = f"{self.base_url}/users/me/drafts/{draft_id}"
-            
-            response = requests.delete(url, headers=self.headers)
-            
-            return response.status_code == 204
-            
-        except Exception as e:
-            print(f"Error deleting draft: {e}")
-            return False
-    
-    def get_user_profile(self) -> Optional[Dict]:
-        """Get Gmail user profile information"""
-        try:
-            url = f"{self.base_url}/users/me/profile"
-            
-            response = requests.get(url, headers=self.headers)
-            
-            if response.status_code == 200:
+            response = requests.request(method, url, headers=self.headers, **kwargs)
+            if response.status_code in (200, 204):
+                if response.status_code == 204:
+                    return {}
                 return response.json()
             else:
-                print(f"Error getting profile: {response.status_code} - {response.text}")
-                return None
-                
-        except Exception as e:
-            print(f"Error getting profile: {e}")
-            return None
-    
-    def update_draft(self, draft_id: str, to_email: str, subject: str, body: str,
-                    from_email: str = None) -> bool:
-        """Update an existing draft"""
+                # Raise with details so caller can catch & log
+                raise GmailServiceError(
+                    f"Gmail API {method} {url} failed: "
+                    f"{response.status_code} - {response.text}"
+                )
+        except requests.RequestException as e:
+            raise GmailServiceError(f"Request error: {e}")
+
+    # ---------------------------
+    # Drafts
+    # ---------------------------
+    def create_draft(
+        self, to_email: str, subject: str, body: str, from_email: str = None
+    ) -> str:
+        """Create a draft email in Gmail. Returns draft ID if successful."""
+        message = MIMEMultipart()
+        message["to"] = to_email
+        message["subject"] = subject
+        if from_email:
+            message["from"] = from_email
+        message.attach(MIMEText(body, "plain"))
+
+        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
+
+        url = f"{self.base_url}/users/me/drafts"
+        draft_data = {"message": {"raw": raw_message}}
+
+        res = self._request("POST", url, json=draft_data)
+        return res.get("id")
+
+    def send_draft(self, draft_id: str) -> str:
+        """Send a draft email. Returns message ID if successful."""
+        url = f"{self.base_url}/users/me/drafts/{draft_id}/send"
+        res = self._request("POST", url)
+        return res.get("id")
+
+    def delete_draft(self, draft_id: str) -> bool:
+        """Delete a draft email. Returns True if deleted."""
+        url = f"{self.base_url}/users/me/drafts/{draft_id}"
+        self._request("DELETE", url)
+        return True
+
+    def update_draft(
+        self, draft_id: str, to_email: str, subject: str, body: str, from_email: str = None
+    ) -> str:
+        """Replace an existing draft with new content. Returns new draft ID."""
+        self.delete_draft(draft_id)
+        return self.create_draft(to_email, subject, body, from_email)
+
+    # ---------------------------
+    # Direct send
+    # ---------------------------
+    def send_email_directly(
+        self, to_email: str, subject: str, body: str, from_email: str = None
+    ) -> str:
+        """Send an email directly without creating a draft first. Returns message ID."""
+        message = MIMEMultipart()
+        message["to"] = to_email
+        message["subject"] = subject
+        if from_email:
+            message["from"] = from_email
+        message.attach(MIMEText(body, "plain"))
+
+        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
+
+        url = f"{self.base_url}/users/me/messages/send"
+        message_data = {"raw": raw_message}
+
+        res = self._request("POST", url, json=message_data)
+        return res.get("id")
+
+    # ---------------------------
+    # Profile
+    # ---------------------------
+    def get_user_profile(self) -> Optional[Dict]:
+        """Get Gmail user profile information"""
+        url = f"{self.base_url}/users/me/profile"
         try:
-            # Delete old draft
-            self.delete_draft(draft_id)
-            
-            # Create new draft with updated content
-            new_draft_id = self.create_draft(to_email, subject, body, from_email)
-            
-            return new_draft_id is not None
-            
-        except Exception as e:
-            print(f"Error updating draft: {e}")
-            return False
+            return self._request("GET", url)
+        except GmailServiceError as e:
+            print(f"[GmailService] Error getting profile: {e}")
+            return None
