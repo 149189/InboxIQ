@@ -134,9 +134,6 @@ GOOGLE_OAUTH_SCOPES = [
     'https://www.googleapis.com/auth/gmail.modify',
     'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/contacts.readonly',
-    "https://www.googleapis.com/auth/gmail.compose",
-    "https://www.googleapis.com/auth/userinfo.profile",
-    "https://www.googleapis.com/auth/userinfo.email",
 ]
 
 # CORS Settings - FIXED FOR OAUTH PROFILE FETCHING
