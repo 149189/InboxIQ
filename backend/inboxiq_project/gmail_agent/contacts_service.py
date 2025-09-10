@@ -2,6 +2,9 @@
 import re
 from difflib import SequenceMatcher
 from django.db import transaction
+from django.conf import settings
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
 
 from .models import ContactCache  # adjust import if models in different path
 
@@ -9,14 +12,19 @@ from .models import ContactCache  # adjust import if models in different path
 # pip install google-api-python-client google-auth
 
 class GoogleContactsService:
-    def __init__(self, access_token):
+    def __init__(self, access_token, refresh_token=None):
         self.access_token = access_token
+        self.refresh_token = refresh_token
 
     def _build_people_service(self):
         try:
             from google.oauth2.credentials import Credentials
             from googleapiclient.discovery import build
-            creds = Credentials(token=self.access_token)
+            creds = Credentials(token=self.access_token,
+                refresh_token=self.refresh_token,
+                token_uri='https://oauth2.googleapis.com/token',
+                client_id=settings.GOOGLE_OAUTH_CLIENT_ID,
+                client_secret=settings.GOOGLE_OAUTH_CLIENT_SECRET)
             service = build('people', 'v1', credentials=creds, cache_discovery=False)
             return service
         except Exception as e:
