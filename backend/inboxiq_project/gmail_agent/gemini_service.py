@@ -10,6 +10,7 @@ class GeminiService:
     """Service class for interacting with Google Gemini API"""
     
     def __init__(self):
+<<<<<<< Updated upstream
         # Configure Gemini API - Direct key application
         self.api_key = settings.GEMINI_API_KEY
         
@@ -35,6 +36,11 @@ class GeminiService:
             print("[GEMINI] Using mock responses - configure GEMINI_API_KEY for real AI")
             self.model = None
             self.use_mock = True
+=======
+        # Configure Gemini API
+        genai.configure(api_key=settings.GEMINI_API_KEY)
+        self.model = genai.GenerativeModel('gemini-2.0-flash')
+>>>>>>> Stashed changes
         
     def analyze_user_intent(self, message: str) -> Dict:
         """
