@@ -10,22 +10,21 @@ class GeminiService:
     """Service class for interacting with Google Gemini API"""
     
     def __init__(self):
-<<<<<<< Updated upstream
         # Configure Gemini API - Direct key application
         self.api_key = settings.GEMINI_API_KEY
         
         # Also try to get from environment directly as fallback
-        if not self.api_key or self.api_key == 'your-gemini-api-key-here':
+        if not self.api_key or self.api_key == 'AIzaSyDKzHLs-bthDsnHIuFVIPwq05ceuqO22FY':
             import os
             self.api_key = os.getenv('GEMINI_API_KEY', 'AIzaSyDKzHLs-bthDsnHIuFVIPwq05ceuqO22FY')
         
         print(f"[GEMINI] API Key configured: {self.api_key[:10]}..." if self.api_key else "[GEMINI] No API key found")
         print(f"[GEMINI] Full API key check: {self.api_key}")
         
-        if self.api_key and self.api_key != 'your-gemini-api-key-here':
+        if self.api_key and self.api_key != 'AIzaSyDKzHLs-bthDsnHIuFVIPwq05ceuqO22FY':
             try:
                 genai.configure(api_key=self.api_key)
-                self.model = genai.GenerativeModel('gemini-pro')
+                self.model = genai.GenerativeModel('gemini-2.0-flash')
                 self.use_mock = False
                 print("[GEMINI] Successfully configured with real API key")
             except Exception as e:
@@ -36,11 +35,6 @@ class GeminiService:
             print("[GEMINI] Using mock responses - configure GEMINI_API_KEY for real AI")
             self.model = None
             self.use_mock = True
-=======
-        # Configure Gemini API
-        genai.configure(api_key=settings.GEMINI_API_KEY)
-        self.model = genai.GenerativeModel('gemini-2.0-flash')
->>>>>>> Stashed changes
         
     def analyze_user_intent(self, message: str) -> Dict:
         """

@@ -4,11 +4,7 @@ django-cors-headers
 python-decouple
 
 # Database
-<<<<<<< Updated upstream
-PyMySQL==1.1.2
-=======
 mysqlclient
->>>>>>> Stashed changes
 
 # Google APIs
 google-generativeai
