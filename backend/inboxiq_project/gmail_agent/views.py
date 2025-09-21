@@ -8,6 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404
+from django.db import transaction
 
 from .models import ChatSession, ChatMessage, EmailDraft, ContactCache
 from .gemini_service import GeminiService
@@ -377,7 +378,15 @@ from .gmail_service import GmailService, GmailServiceError
 @csrf_exempt
 @require_http_methods(["POST", "OPTIONS"])
 def confirm_email(request):
-    """Confirm and send an email draft with explicit GmailServiceError handling."""
+    """
+    Confirm and send an email draft with comprehensive error handling.
+    
+    Actions supported:
+    - 'send': Send the email via Gmail API
+    - 'edit': Return draft details for editing
+    - 'cancel': Cancel the email draft
+    """
+    # Handle CORS preflight requests
     if request.method == 'OPTIONS':
         response = JsonResponse({})
         response['Access-Control-Allow-Origin'] = request.META.get('HTTP_ORIGIN', '*')
@@ -386,139 +395,341 @@ def confirm_email(request):
         response['Access-Control-Allow-Credentials'] = 'true'
         return response
 
+    # Main request processing with comprehensive error handling
     try:
-        if not request.user.is_authenticated:
-            response = JsonResponse({'error': 'Not authenticated'}, status=401)
-            _cors_response(response)
-            return response
-
-        data = json.loads(request.body or "{}")
-        draft_id = data.get('draft_id')
-        action = data.get('action')  # expected: 'send', 'edit', 'cancel'
-
-        print(f"[CONFIRM_EMAIL] user={request.user} (id={getattr(request.user, 'id', None)}) action={action} draft_id={draft_id}")
-
-        if not draft_id:
-            response = JsonResponse({'error': 'Draft ID is required'}, status=400)
-            _cors_response(response)
-            return response
-
+        # 1. Authentication check
         try:
-            email_draft = EmailDraft.objects.get(id=draft_id, user=request.user)
+            if not request.user or not request.user.is_authenticated:
+                print(f"[CONFIRM_EMAIL] Authentication failed - user: {request.user}")
+                response = JsonResponse({
+                    'error': 'Authentication required',
+                    'code': 'AUTH_REQUIRED'
+                }, status=401)
+                return _cors_response(response)
+        except AttributeError as e:
+            print(f"[CONFIRM_EMAIL] User object error: {e}")
+            response = JsonResponse({
+                'error': 'Invalid user session',
+                'code': 'INVALID_SESSION'
+            }, status=401)
+            return _cors_response(response)
+
+        # 2. Parse and validate request body
+        try:
+            if not request.body:
+                response = JsonResponse({
+                    'error': 'Request body is required',
+                    'code': 'MISSING_BODY'
+                }, status=400)
+                return _cors_response(response)
+            
+            data = json.loads(request.body)
+            if not isinstance(data, dict):
+                response = JsonResponse({
+                    'error': 'Request body must be a JSON object',
+                    'code': 'INVALID_JSON_TYPE'
+                }, status=400)
+                return _cors_response(response)
+                
+        except json.JSONDecodeError as e:
+            print(f"[CONFIRM_EMAIL] JSON decode error: {e}")
+            response = JsonResponse({
+                'error': 'Invalid JSON format in request body',
+                'code': 'INVALID_JSON',
+                'details': str(e)
+            }, status=400)
+            return _cors_response(response)
+        except Exception as e:
+            print(f"[CONFIRM_EMAIL] Unexpected error parsing request: {e}")
+            response = JsonResponse({
+                'error': 'Failed to parse request',
+                'code': 'PARSE_ERROR',
+                'details': str(e)
+            }, status=400)
+            return _cors_response(response)
+
+        # 3. Extract and validate required parameters
+        try:
+            draft_id = data.get('draft_id')
+            action = data.get('action', '').strip().lower()
+            
+            print(f"[CONFIRM_EMAIL] Processing request - user_id: {getattr(request.user, 'id', 'unknown')}, action: {action}, draft_id: {draft_id}")
+            
+            if not draft_id:
+                response = JsonResponse({
+                    'error': 'Draft ID is required',
+                    'code': 'MISSING_DRAFT_ID'
+                }, status=400)
+                return _cors_response(response)
+            
+            if not action:
+                response = JsonResponse({
+                    'error': 'Action is required',
+                    'code': 'MISSING_ACTION'
+                }, status=400)
+                return _cors_response(response)
+            
+            if action not in ['send', 'edit', 'cancel']:
+                response = JsonResponse({
+                    'error': f'Invalid action: {action}. Must be one of: send, edit, cancel',
+                    'code': 'INVALID_ACTION'
+                }, status=400)
+                return _cors_response(response)
+                
+        except Exception as e:
+            print(f"[CONFIRM_EMAIL] Error extracting parameters: {e}")
+            response = JsonResponse({
+                'error': 'Failed to process request parameters',
+                'code': 'PARAM_ERROR',
+                'details': str(e)
+            }, status=400)
+            return _cors_response(response)
+
+        # 4. Retrieve and validate email draft
+        try:
+            email_draft = EmailDraft.objects.get(
+                id=draft_id, 
+                user=request.user
+            )
         except EmailDraft.DoesNotExist:
-            response = JsonResponse({'error': f'Draft not found (id={draft_id})'}, status=404)
-            _cors_response(response)
-            return response
+            print(f"[CONFIRM_EMAIL] Draft not found - draft_id: {draft_id}, user_id: {getattr(request.user, 'id', 'unknown')}")
+            response = JsonResponse({
+                'error': f'Email draft not found or access denied',
+                'code': 'DRAFT_NOT_FOUND',
+                'draft_id': draft_id
+            }, status=404)
+            return _cors_response(response)
+        except Exception as e:
+            print(f"[CONFIRM_EMAIL] Database error retrieving draft: {e}")
+            traceback.print_exc()
+            response = JsonResponse({
+                'error': 'Database error retrieving email draft',
+                'code': 'DB_ERROR',
+                'details': str(e)
+            }, status=500)
+            return _cors_response(response)
 
-        # SEND action
+        # 5. Process action-specific logic
         if action == 'send':
-            if not getattr(request.user, 'access_token', None):
-                response = JsonResponse({'error': 'No Gmail access token available'}, status=400)
-                _cors_response(response)
-                return response
+            return _handle_send_action(request, email_draft, draft_id)
+        elif action == 'edit':
+            return _handle_edit_action(email_draft)
+        elif action == 'cancel':
+            return _handle_cancel_action(email_draft, draft_id)
 
-            gmail_service = GmailService(request.user.access_token)
+    except Exception as e:
+        # Catch-all for any unexpected errors
+        print(f"[CONFIRM_EMAIL] Unexpected server error: {e}")
+        traceback.print_exc()
+        response = JsonResponse({
+            'error': 'Internal server error occurred',
+            'code': 'INTERNAL_ERROR',
+            'details': str(e) if hasattr(e, '__str__') else 'Unknown error'
+        }, status=500)
+        return _cors_response(response)
 
-            try:
-                print(f"[CONFIRM_EMAIL] Sending email to {email_draft.recipient_email} (subject={email_draft.subject})")
-                message_id = gmail_service.send_email_directly(
-                    to_email=email_draft.recipient_email,
-                    subject=email_draft.subject,
-                    body=email_draft.body
-                )
-            except GmailServiceError as e:
-                # Gmail API returned an error — return structured JSON (502 Bad Gateway)
-                print(f"[CONFIRM_EMAIL] GmailServiceError: {e}")
-                traceback.print_exc()
-                response = JsonResponse({'error': 'Gmail API error', 'details': str(e)}, status=502)
-                _cors_response(response)
-                return response
-            except Exception as e:
-                # Unexpected error from GmailService invocation
-                print(f"[CONFIRM_EMAIL] Exception while calling GmailService: {e}")
-                traceback.print_exc()
-                response = JsonResponse({'error': 'Exception while sending email', 'details': str(e)}, status=500)
-                _cors_response(response)
-                return response
 
+def _handle_send_action(request, email_draft, draft_id):
+    """Handle the 'send' action with comprehensive error handling."""
+    try:
+        # Validate user has access token
+        try:
+            access_token = getattr(request.user, 'access_token', None)
+            if not access_token or not isinstance(access_token, str) or not access_token.strip():
+                print(f"[CONFIRM_EMAIL] Missing or invalid access token for user {getattr(request.user, 'id', 'unknown')}")
+                response = JsonResponse({
+                    'error': 'Gmail access token not available. Please reconnect your Google account.',
+                    'code': 'NO_ACCESS_TOKEN'
+                }, status=400)
+                return _cors_response(response)
+        except Exception as e:
+            print(f"[CONFIRM_EMAIL] Error checking access token: {e}")
+            response = JsonResponse({
+                'error': 'Failed to validate Gmail access',
+                'code': 'TOKEN_CHECK_ERROR',
+                'details': str(e)
+            }, status=500)
+            return _cors_response(response)
+
+        # Validate email draft fields
+        try:
+            validation_errors = []
+            
+            if not email_draft.recipient_email or not email_draft.recipient_email.strip():
+                validation_errors.append('Recipient email is missing')
+            elif not EMAIL_RE.match(email_draft.recipient_email.strip()):
+                validation_errors.append('Recipient email format is invalid')
+                
+            if not email_draft.subject or not email_draft.subject.strip():
+                validation_errors.append('Email subject is missing')
+                
+            if not hasattr(email_draft, 'body') or email_draft.body is None:
+                validation_errors.append('Email body is missing')
+                
+            if validation_errors:
+                response = JsonResponse({
+                    'error': 'Email draft validation failed',
+                    'code': 'VALIDATION_ERROR',
+                    'validation_errors': validation_errors
+                }, status=400)
+                return _cors_response(response)
+                
+        except Exception as e:
+            print(f"[CONFIRM_EMAIL] Error validating email draft: {e}")
+            response = JsonResponse({
+                'error': 'Failed to validate email draft',
+                'code': 'DRAFT_VALIDATION_ERROR',
+                'details': str(e)
+            }, status=500)
+            return _cors_response(response)
+
+        # Initialize Gmail service
+        try:
+            gmail_service = GmailService(access_token.strip())
+        except Exception as e:
+            print(f"[CONFIRM_EMAIL] Error initializing Gmail service: {e}")
+            traceback.print_exc()
+            response = JsonResponse({
+                'error': 'Failed to initialize Gmail service. Please check your Google account connection.',
+                'code': 'GMAIL_INIT_ERROR',
+                'details': str(e)
+            }, status=500)
+            return _cors_response(response)
+
+        # Send email via Gmail API
+        try:
+            print(f"[CONFIRM_EMAIL] Attempting to send email - to: {email_draft.recipient_email}, subject: {email_draft.subject[:50]}...")
+            
+            message_id = gmail_service.send_email_directly(
+                to_email=email_draft.recipient_email.strip(),
+                subject=email_draft.subject.strip(),
+                body=email_draft.body or ''
+            )
+            
             if not message_id:
-                # Defensive: if no message_id returned, treat as failure
-                print(f"[CONFIRM_EMAIL] GmailService did not return a message_id for draft {draft_id}")
-                response = JsonResponse({'error': 'Failed to send email: no message id returned'}, status=500)
-                _cors_response(response)
-                return response
+                print(f"[CONFIRM_EMAIL] Gmail service returned empty message_id for draft {draft_id}")
+                response = JsonResponse({
+                    'error': 'Email sending failed - no message ID returned',
+                    'code': 'NO_MESSAGE_ID'
+                }, status=500)
+                return _cors_response(response)
+                
+        except GmailServiceError as e:
+            print(f"[CONFIRM_EMAIL] Gmail API error: {e}")
+            traceback.print_exc()
+            response = JsonResponse({
+                'error': 'Gmail API error occurred while sending email',
+                'code': 'GMAIL_API_ERROR',
+                'details': str(e)
+            }, status=502)
+            return _cors_response(response)
+        except Exception as e:
+            print(f"[CONFIRM_EMAIL] Unexpected error sending email: {e}")
+            traceback.print_exc()
+            response = JsonResponse({
+                'error': 'Unexpected error occurred while sending email',
+                'code': 'SEND_ERROR',
+                'details': str(e)
+            }, status=500)
+            return _cors_response(response)
 
-            # Mark as sent (guarded)
-            try:
+        # Update draft status
+        try:
+            with transaction.atomic():
                 if hasattr(email_draft, 'mark_as_sent') and callable(getattr(email_draft, 'mark_as_sent')):
                     email_draft.mark_as_sent(message_id)
                 else:
                     email_draft.status = 'sent'
-                    # set sent_message_id if model has such a field (best-effort)
                     if hasattr(email_draft, 'sent_message_id'):
                         setattr(email_draft, 'sent_message_id', message_id)
                     email_draft.save()
-                print(f"[CONFIRM_EMAIL] Email draft {draft_id} marked as sent (message_id={message_id})")
-            except Exception as e:
-                print(f"[CONFIRM_EMAIL] Error marking draft as sent: {e}")
-                traceback.print_exc()
-                # Return success for send but warn about DB update failure
-                response = JsonResponse({
-                    'success': True,
-                    'message': f'Email sent, but failed to update draft status: {str(e)}',
-                    'message_id': message_id
-                })
-                _cors_response(response)
-                return response
-
+            
+            print(f"[CONFIRM_EMAIL] Successfully sent email - draft_id: {draft_id}, message_id: {message_id}")
+            
+        except Exception as e:
+            print(f"[CONFIRM_EMAIL] Error updating draft status: {e}")
+            traceback.print_exc()
+            # Email was sent successfully, but we couldn't update the status
             response = JsonResponse({
                 'success': True,
-                'message': f'Email sent successfully to {email_draft.recipient_name}!',
-                'message_id': message_id
+                'message': f'Email sent successfully, but failed to update status: {str(e)}',
+                'message_id': message_id,
+                'code': 'SENT_STATUS_UPDATE_FAILED'
             })
-            _cors_response(response)
-            return response
+            return _cors_response(response)
 
-        # EDIT action
-        elif action == 'edit':
-            response = JsonResponse({
-                'draft': {
-                    'id': email_draft.id,
-                    'recipient_name': email_draft.recipient_name,
-                    'recipient_email': email_draft.recipient_email,
-                    'subject': email_draft.subject,
-                    'body': email_draft.body
-                }
-            })
-            _cors_response(response)
-            return response
-
-        # CANCEL action
-        elif action == 'cancel':
-            try:
-                email_draft.status = 'cancelled'
-                email_draft.save()
-                response = JsonResponse({'success': True, 'message': 'Email draft cancelled'})
-                _cors_response(response)
-                return response
-            except Exception as e:
-                print(f"[CONFIRM_EMAIL] Error cancelling draft {draft_id}: {e}")
-                traceback.print_exc()
-                response = JsonResponse({'error': 'Failed to cancel draft', 'details': str(e)}, status=500)
-                _cors_response(response)
-                return response
-
-        else:
-            response = JsonResponse({'error': 'Invalid action'}, status=400)
-            _cors_response(response)
-            return response
+        # Success response
+        response = JsonResponse({
+            'success': True,
+            'message': f'Email sent successfully to {email_draft.recipient_name or email_draft.recipient_email}!',
+            'message_id': message_id,
+            'recipient': email_draft.recipient_email
+        })
+        return _cors_response(response)
 
     except Exception as e:
-        print(f"[CONFIRM_EMAIL] Unexpected server error: {e}")
+        print(f"[CONFIRM_EMAIL] Unexpected error in send action: {e}")
         traceback.print_exc()
-        response = JsonResponse({'error': 'Server error while processing confirm_email', 'details': str(e)}, status=500)
-        _cors_response(response)
-        return response
+        response = JsonResponse({
+            'error': 'Unexpected error occurred during send operation',
+            'code': 'SEND_OPERATION_ERROR',
+            'details': str(e)
+        }, status=500)
+        return _cors_response(response)
+
+
+def _handle_edit_action(email_draft):
+    """Handle the 'edit' action with error handling."""
+    try:
+        draft_data = {
+            'id': email_draft.id,
+            'recipient_name': email_draft.recipient_name or '',
+            'recipient_email': email_draft.recipient_email or '',
+            'subject': email_draft.subject or '',
+            'body': email_draft.body or ''
+        }
+        
+        response = JsonResponse({
+            'success': True,
+            'draft': draft_data
+        })
+        return _cors_response(response)
+        
+    except Exception as e:
+        print(f"[CONFIRM_EMAIL] Error in edit action: {e}")
+        traceback.print_exc()
+        response = JsonResponse({
+            'error': 'Failed to retrieve draft for editing',
+            'code': 'EDIT_ERROR',
+            'details': str(e)
+        }, status=500)
+        return _cors_response(response)
+
+
+def _handle_cancel_action(email_draft, draft_id):
+    """Handle the 'cancel' action with error handling."""
+    try:
+        with transaction.atomic():
+            email_draft.status = 'cancelled'
+            email_draft.save()
+        
+        print(f"[CONFIRM_EMAIL] Successfully cancelled draft {draft_id}")
+        
+        response = JsonResponse({
+            'success': True,
+            'message': 'Email draft cancelled successfully'
+        })
+        return _cors_response(response)
+        
+    except Exception as e:
+        print(f"[CONFIRM_EMAIL] Error cancelling draft {draft_id}: {e}")
+        traceback.print_exc()
+        response = JsonResponse({
+            'error': 'Failed to cancel email draft',
+            'code': 'CANCEL_ERROR',
+            'details': str(e)
+        }, status=500)
+        return _cors_response(response)
 
 
 

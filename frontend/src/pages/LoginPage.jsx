@@ -1,15 +1,18 @@
 // src/pages/LoginPage.jsx
 import React, { useState } from 'react'
-import Container from '@mui/material/Container'
-import Paper from '@mui/material/Paper'
-import Typography from '@mui/material/Typography'
-import TextField from '@mui/material/TextField'
-import Button from '@mui/material/Button'
-import Alert from '@mui/material/Alert'
-import Stack from '@mui/material/Stack'
-import Divider from '@mui/material/Divider'
-import Box from '@mui/material/Box'
-import { useNavigate } from 'react-router-dom'
+import {
+  Container,
+  Paper,
+  Typography,
+  TextField,
+  Button,
+  Alert,
+  Stack,
+  Divider,
+  Box,
+  Link
+} from '@mui/material'
+import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import GoogleOAuthButton from '../components/GoogleOAuthButton'
 
 export default function LoginPage() {
@@ -38,48 +41,204 @@ export default function LoginPage() {
   }
 
   return (
-    <Container maxWidth="sm" sx={{ py: 8 }}>
-      <Paper elevation={2} sx={{ p: 4 }}>
-        <Typography variant="h5" sx={{ mb: 2 }}>Login</Typography>
+    <Box sx={{ 
+      minHeight: 'calc(100vh - 64px)', 
+      backgroundColor: '#f8f9fa',
+      display: 'flex',
+      alignItems: 'center',
+      py: 4
+    }}>
+      <Container maxWidth="sm">
+        <Box sx={{ textAlign: 'center', mb: 4 }}>
+          <Typography
+            variant="h4"
+            component="h1"
+            sx={{
+              fontWeight: 400,
+              color: '#202124',
+              mb: 1,
+              fontFamily: 'Google Sans, Roboto, sans-serif'
+            }}
+          >
+            Sign in to{' '}
+            <Box
+              component="span"
+              sx={{
+                background: 'linear-gradient(45deg, #4285f4, #34a853, #fbbc04, #ea4335)',
+                backgroundClip: 'text',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                fontWeight: 500
+              }}
+            >
+              InboxIQ
+            </Box>
+          </Typography>
+          <Typography
+            variant="body1"
+            sx={{
+              color: '#5f6368',
+              fontWeight: 400
+            }}
+          >
+            Continue to your AI-powered email assistant
+          </Typography>
+        </Box>
 
-        <Stack spacing={3}>
-          {error && <Alert severity="error">{error}</Alert>}
+        <Paper 
+          elevation={0}
+          sx={{ 
+            p: { xs: 4, sm: 6 },
+            border: '1px solid #dadce0',
+            borderRadius: '8px',
+            backgroundColor: '#ffffff'
+          }}
+        >
+          <Stack spacing={3}>
+            {error && (
+              <Alert 
+                severity="error"
+                sx={{
+                  borderRadius: '8px',
+                  '& .MuiAlert-message': {
+                    color: '#d93025'
+                  }
+                }}
+              >
+                {error}
+              </Alert>
+            )}
 
-          {/* Google OAuth Button */}
-          <GoogleOAuthButton 
-            onError={(errorMsg) => setError(errorMsg)}
-          />
-
-          <Box sx={{ display: 'flex', alignItems: 'center', my: 2 }}>
-            <Divider sx={{ flexGrow: 1 }} />
-            <Typography variant="body2" sx={{ mx: 2, color: 'text.secondary' }}>
-              OR
-            </Typography>
-            <Divider sx={{ flexGrow: 1 }} />
-          </Box>
-
-          {/* Traditional Login Form */}
-          <Stack component="form" spacing={2} onSubmit={handleSubmit}>
-            <TextField
-              label="Username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              fullWidth
-              required
+            {/* Google OAuth Button */}
+            <GoogleOAuthButton 
+              onError={(errorMsg) => setError(errorMsg)}
             />
-            <TextField
-              label="Password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              fullWidth
-              required
-            />
 
-            <Button type="submit" variant="contained">Sign in</Button>
+            <Box sx={{ display: 'flex', alignItems: 'center', my: 3 }}>
+              <Divider sx={{ flexGrow: 1, borderColor: '#dadce0' }} />
+              <Typography 
+                variant="body2" 
+                sx={{ 
+                  mx: 3, 
+                  color: '#5f6368',
+                  fontSize: '0.875rem'
+                }}
+              >
+                or sign in with username
+              </Typography>
+              <Divider sx={{ flexGrow: 1, borderColor: '#dadce0' }} />
+            </Box>
+
+            {/* Traditional Login Form */}
+            <Stack component="form" spacing={3} onSubmit={handleSubmit}>
+              <TextField
+                label="Username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                fullWidth
+                required
+                variant="outlined"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    borderRadius: '8px',
+                    '& fieldset': {
+                      borderColor: '#dadce0',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: '#5f6368',
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: '#1a73e8',
+                      borderWidth: '2px',
+                    },
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: '#5f6368',
+                    '&.Mui-focused': {
+                      color: '#1a73e8',
+                    },
+                  },
+                }}
+              />
+              <TextField
+                label="Password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                fullWidth
+                required
+                variant="outlined"
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    borderRadius: '8px',
+                    '& fieldset': {
+                      borderColor: '#dadce0',
+                    },
+                    '&:hover fieldset': {
+                      borderColor: '#5f6368',
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: '#1a73e8',
+                      borderWidth: '2px',
+                    },
+                  },
+                  '& .MuiInputLabel-root': {
+                    color: '#5f6368',
+                    '&.Mui-focused': {
+                      color: '#1a73e8',
+                    },
+                  },
+                }}
+              />
+
+              <Button 
+                type="submit" 
+                variant="contained"
+                size="large"
+                sx={{
+                  py: 1.5,
+                  fontSize: '1rem',
+                  fontWeight: 500,
+                  borderRadius: '24px',
+                  textTransform: 'none',
+                  boxShadow: '0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15)',
+                  '&:hover': {
+                    boxShadow: '0 1px 3px 0 rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15)',
+                  }
+                }}
+              >
+                Sign in
+              </Button>
+            </Stack>
+
+            <Box sx={{ textAlign: 'center', mt: 4 }}>
+              <Typography variant="body2" sx={{ color: '#5f6368' }}>
+                Don't have an account?{' '}
+                <Link
+                  component={RouterLink}
+                  to="/register"
+                  sx={{
+                    color: '#1a73e8',
+                    textDecoration: 'none',
+                    fontWeight: 500,
+                    '&:hover': {
+                      textDecoration: 'underline'
+                    }
+                  }}
+                >
+                  Create account
+                </Link>
+              </Typography>
+            </Box>
           </Stack>
-        </Stack>
-      </Paper>
-    </Container>
+        </Paper>
+
+        <Box sx={{ textAlign: 'center', mt: 4 }}>
+          <Typography variant="caption" sx={{ color: '#5f6368' }}>
+            By signing in, you agree to our Terms of Service and Privacy Policy
+          </Typography>
+        </Box>
+      </Container>
+    </Box>
   )
 }

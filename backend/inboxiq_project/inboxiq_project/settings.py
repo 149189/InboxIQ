@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'gmail_agent',
+    'calendar_agent',
     'Oauth',
     'corsheaders',
 ]
