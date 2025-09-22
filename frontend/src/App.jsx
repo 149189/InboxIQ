@@ -9,6 +9,8 @@ import WelcomePage from './pages/WelcomePage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import OAuthCallbackPage from './pages/OAuthCallbackPage'
+import CalendarPage from './pages/CalendarPage'
+import UnifiedChatPage from './pages/UnifiedChatPage'
 
 import GoogleLoginButton from './components/GoogleLoginButton'
 import Chat from './pages/Chat' 
@@ -53,7 +55,9 @@ export default function App() {
             <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
             <Route path="/oauth/google/callback" element={<OAuthRedirectHandler />} />
             <Route path="/google-login" element={<GoogleLoginPage />} />
-            <Route path="/chat" element={<Chat />} />
+            <Route path="/chat" element={<UnifiedChatPage />} />
+            <Route path="/calendar" element={<CalendarPage />} />
+            <Route path="/gmail" element={<Chat />} />
           </Routes>
         </main>
         <Footer />

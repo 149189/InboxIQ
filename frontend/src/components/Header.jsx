@@ -116,6 +116,25 @@ export default function Header() {
               Chat
             </Button>
 
+            <Button
+              component={RouterLink}
+              to="/calendar"
+              sx={{
+                color: location.pathname === '/calendar' ? '#1a73e8' : '#5f6368',
+                textTransform: 'none',
+                fontWeight: 500,
+                px: 2,
+                py: 1,
+                borderRadius: '24px',
+                '&:hover': {
+                  backgroundColor: '#f1f3f4',
+                  color: '#202124'
+                }
+              }}
+            >
+              Calendar
+            </Button>
+
             {/* Google Apps Icon */}
             <IconButton
               sx={{

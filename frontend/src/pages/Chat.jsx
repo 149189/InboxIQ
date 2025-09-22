@@ -2,14 +2,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
-  Paper,
-  TextField,
-  Button,
+  Container,
   Typography,
-  Avatar,
-  Chip,
+  Paper,
+  Grid,
   Card,
   CardContent,
+  Avatar,
+  Chip,
   IconButton,
   Dialog,
   DialogTitle,
@@ -19,26 +19,31 @@ import {
   Alert,
   Menu,
   MenuItem,
-  Divider
+  Divider,
+  Button
 } from '@mui/material';
 import {
-  Send as SendIcon,
   Person as PersonIcon,
   SmartToy as BotIcon,
   Email as EmailIcon,
+  CalendarToday as CalendarIcon,
   Check as CheckIcon,
   Close as CloseIcon,
   Edit as EditIcon,
   Settings as SettingsIcon,
   AccountCircle as AccountCircleIcon,
-  Logout as LogoutIcon
+  Logout as LogoutIcon,
+  AutoAwesome as AIIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import UnifiedChat from '../components/UnifiedChat';
+import { CalendarProvider } from '../contexts/CalendarContext';
+import calendarService from '../services/calendarService';
 
 export default function Chat() {
-  const [messages, setMessages] = useState([]);
-  const [inputMessage, setInputMessage] = useState('');
-  const [sessionId, setSessionId] = useState(null);
+  const [gmailMessages, setGmailMessages] = useState([]);
+  const [calendarMessages, setCalendarMessages] = useState([]);
+  const [gmailSessionId, setGmailSessionId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [emailConfirmDialog, setEmailConfirmDialog] = useState(null);
