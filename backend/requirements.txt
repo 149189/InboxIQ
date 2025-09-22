@@ -18,3 +18,7 @@ requests
 
 # Email handling
 email-validator
+
+# Production server
+gunicorn
+whitenoise

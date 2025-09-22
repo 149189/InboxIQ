@@ -49,38 +49,63 @@ class GeminiService:
 
     def _mock_analyze_intent(self, message: str) -> Dict:
         message_lower = message.lower()
-        email_keywords = ['send email', 'email', 'write to', 'message', 'mail', 'compose', 'send an email', 'send mail', 'send']
-        if any(k in message_lower for k in email_keywords):
-            recipient_info = None
+        
+        # Check for greeting/help patterns first (should NOT be email intent)
+        greeting_patterns = [
+            'hello', 'hi', 'hey', 'help me', 'can you help', 'i need help',
+            'how do i', 'what can you do', 'assist me', 'support'
+        ]
+        if any(pattern in message_lower for pattern in greeting_patterns):
+            return {'intent': 'chat', 'recipient_info': None, 'email_context': message, 'confidence': 0.95}
+        
+        # Check for specific email composition patterns (more specific)
+        email_composition_patterns = [
+            'send email to', 'send an email to', 'email to', 'write to', 'compose email to',
+            'draft email to', 'send mail to', 'message to', 'write an email to'
+        ]
+        
+        # Check if message contains email address
+        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', message)
+        
+        # Only classify as email intent if:
+        # 1. Contains specific composition patterns, OR
+        # 2. Contains email address with action words, OR  
+        # 3. Has clear "to [recipient]" structure
+        is_email_intent = False
+        recipient_info = None
+        
+        if any(pattern in message_lower for pattern in email_composition_patterns):
+            is_email_intent = True
+        elif email_match and any(word in message_lower for word in ['send', 'draft', 'compose', 'write']):
+            is_email_intent = True
+            recipient_info = email_match.group(0)
+        elif ' to ' in message_lower and any(word in message_lower for word in ['send', 'draft', 'compose', 'write', 'email', 'mail']):
+            is_email_intent = True
+        
+        if is_email_intent:
             email_context = message.strip()
 
-            # heuristic "to <name>"
-            if ' to ' in message_lower:
-                try:
-                    idx = message_lower.find(' to ')
-                    after = message[idx + 4:].strip()
-                    stop_words = [' for ', ' about ', ' regarding ', ' at ', ' on ', ' tomorrow', ' today', ' at ']
-                    for sw in stop_words:
-                        if sw in after.lower():
-                            after = after.lower().split(sw)[0].strip()
-                            break
-                    recipient_info = ' '.join(after.split()[:4]).strip()
-                except Exception:
-                    recipient_info = None
-
-            # fallback patterns
+            # Extract recipient info if not already found
             if not recipient_info:
-                m = re.search(r'\b(?:mail|email|message|send)\s+to\s+([A-Za-z][A-Za-z\.\-]*(?:\s+[A-Za-z][A-Za-z\.\-]*){0,4})', message, re.I)
-                if m:
-                    recipient_info = m.group(1).strip()
-                else:
-                    m2 = re.search(r'\b(?:mail|email|message|send)\s+([A-Za-z][A-Za-z\.\-]*(?:\s+[A-Za-z][A-Za-z\.\-]*){0,4})', message, re.I)
-                    if m2:
-                        recipient_info = m2.group(1).strip()
+                # heuristic "to <name>"
+                if ' to ' in message_lower:
+                    try:
+                        idx = message_lower.find(' to ')
+                        after = message[idx + 4:].strip()
+                        stop_words = [' for ', ' about ', ' regarding ', ' at ', ' on ', ' tomorrow', ' today', ' at ']
+                        for sw in stop_words:
+                            if sw in after.lower():
+                                after = after.lower().split(sw)[0].strip()
+                                break
+                        recipient_info = ' '.join(after.split()[:4]).strip()
+                    except Exception:
+                        recipient_info = None
 
-            email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', message)
-            if email_match:
-                recipient_info = email_match.group(0)
+                # fallback patterns
+                if not recipient_info:
+                    m = re.search(r'\b(?:mail|email|message|send)\s+to\s+([A-Za-z][A-Za-z\.\-]*(?:\s+[A-Za-z][A-Za-z\.\-]*){0,4})', message, re.I)
+                    if m:
+                        recipient_info = m.group(1).strip()
 
             return {'intent': 'email', 'recipient_info': recipient_info, 'email_context': email_context, 'confidence': 0.8}
         else:
@@ -320,11 +345,109 @@ Produce only valid JSON.
     # -------------------
     def generate_chat_response(self, message: str, chat_history: List[Dict]) -> str:
         if self.use_mock:
-            return f"I understood: \"{message}\" — how can I help with that?"
+            return self._mock_generate_chat_response(message, chat_history)
         try:
-            prompt = f"User said: {message}\nChat history: {chat_history}\nReply succinctly."
+            prompt = f"""You are InboxIQ's Gmail Assistant. Help the user with email-related tasks.
+            
+            You can help with:
+            - Composing and sending emails
+            - Searching and organizing emails
+            - Managing email settings
+            - Email productivity tips
+            - Gmail features and shortcuts
+            
+            User message: {message}
+            Chat history: {chat_history}
+            
+            Provide a helpful, concise response about Gmail and email management."""
+            
             resp = self.model.generate_content(prompt)
             return (resp.text or "").strip()
         except Exception as e:
             print(f"[GEMINI] generate_chat_response error: {e}")
             return "Sorry, I couldn't process that due to an internal error."
+    
+    def _mock_generate_chat_response(self, message: str, chat_history: List[Dict]) -> str:
+        """Generate helpful Gmail assistant responses for common queries"""
+        message_lower = message.lower()
+        
+        # Greeting responses
+        if any(pattern in message_lower for pattern in ['hello', 'hi', 'hey']):
+            return """Hello! I'm your Gmail Assistant. I can help you with:
+
+📧 **Email Composition** - Draft and send emails
+🔍 **Email Search** - Find specific emails and conversations  
+📁 **Organization** - Manage labels, folders, and filters
+⚙️ **Settings** - Configure Gmail preferences
+💡 **Tips** - Gmail shortcuts and productivity features
+
+What would you like to help with today?"""
+
+        # Help requests
+        elif any(pattern in message_lower for pattern in ['help me', 'can you help', 'what can you do']):
+            return """I'm here to help with all your Gmail needs! Here's what I can do:
+
+**📝 Email Management:**
+• Compose and send emails to anyone
+• Search through your email history
+• Organize emails with labels and filters
+
+**🔍 Search & Find:**
+• Find emails by sender, subject, or date
+• Search for specific keywords or attachments
+• Locate important conversations
+
+**⚙️ Gmail Features:**
+• Set up email signatures and auto-replies
+• Configure notification settings
+• Use keyboard shortcuts for efficiency
+
+Just tell me what you need help with!"""
+
+        # Search help
+        elif any(pattern in message_lower for pattern in ['search', 'find emails', 'how do i search']):
+            return """Here are some powerful Gmail search tips:
+
+**🔍 Basic Search:**
+• `from:sender@email.com` - Find emails from specific sender
+• `subject:meeting` - Search email subjects
+• `has:attachment` - Find emails with attachments
+
+**📅 Date Searches:**
+• `after:2024/01/01` - Emails after a date
+• `before:2024/12/31` - Emails before a date
+• `older_than:7d` - Emails older than 7 days
+
+**🏷️ Advanced:**
+• `label:important` - Search by label
+• `is:unread` - Find unread emails
+• `larger:10M` - Find large emails
+
+Try combining these for powerful searches!"""
+
+        # Email confirmation responses
+        elif message_lower in ['yes', 'send', 'send it']:
+            return """I understand you want to send the email, but I need you to use the email confirmation dialog that appeared. Please click the "Yes, Send" button in the email preview window to send your email."""
+
+        # General email questions
+        elif 'email' in message_lower:
+            return """I'm your Gmail assistant! I can help you with:
+
+• **Compose emails** - Just say "Draft an email to [person] about [topic]"
+• **Search emails** - Ask me to find specific emails or conversations
+• **Organize inbox** - Help with labels, filters, and organization
+• **Gmail tips** - Share shortcuts and productivity features
+
+What specific email task can I help you with?"""
+
+        # Default helpful response
+        else:
+            return f"""I'm your Gmail Assistant! I can help you manage your emails more effectively.
+
+For your message "{message}", I can assist with:
+• Email composition and sending
+• Searching and organizing emails
+• Gmail features and settings
+• Email productivity tips
+
+What would you like to do with your emails today?"""

@@ -242,9 +242,38 @@ def _fallback_intent_analysis(message: str) -> dict:
     
     message_lower = message.lower()
     
-    # Create event keywords
-    create_keywords = ['create', 'schedule', 'book', 'add', 'meeting', 'appointment', 'event']
-    if any(keyword in message_lower for keyword in create_keywords):
+    # Check for specific phrases first (more specific matches)
+    
+    # Find free time keywords (check first as they're more specific)
+    if any(phrase in message_lower for phrase in [
+        'when am i free', 'when can i', 'free time', 'available time', 
+        'find time', 'when do i have time', 'free this week', 'free today',
+        'available this week', 'available today'
+    ]):
+        return {
+            'intent': 'find_free_time',
+            'confidence': 0.8,
+            'extracted_info': {}
+        }
+    
+    # List events keywords (check second)
+    if any(phrase in message_lower for phrase in [
+        'show me my', 'show my', 'list my', 'what do i have', 'my calendar',
+        'my events', 'upcoming events', 'my schedule', 'what\'s on my calendar',
+        'show me upcoming', 'list events'
+    ]):
+        return {
+            'intent': 'list_events',
+            'confidence': 0.8,
+            'extracted_info': {}
+        }
+    
+    # Create event keywords (check last as they're more general)
+    if any(word in message_lower for word in [
+        'schedule', 'create', 'book', 'add', 'meeting', 'appointment', 'event'
+    ]) and not any(phrase in message_lower for phrase in [
+        'show', 'list', 'what do i have', 'my calendar', 'free', 'available'
+    ]):
         return {
             'intent': 'create_event',
             'confidence': 0.7,
@@ -252,24 +281,6 @@ def _fallback_intent_analysis(message: str) -> dict:
                 'title': 'New Event',
                 'description': message
             }
-        }
-    
-    # Find free time keywords
-    free_time_keywords = ['free time', 'available', 'when can', 'schedule', 'find time']
-    if any(keyword in message_lower for keyword in free_time_keywords):
-        return {
-            'intent': 'find_free_time',
-            'confidence': 0.7,
-            'extracted_info': {}
-        }
-    
-    # List events keywords
-    list_keywords = ['show', 'list', 'what do i have', 'my calendar', 'events', 'schedule']
-    if any(keyword in message_lower for keyword in list_keywords):
-        return {
-            'intent': 'list_events',
-            'confidence': 0.7,
-            'extracted_info': {}
         }
     
     # Default to general chat

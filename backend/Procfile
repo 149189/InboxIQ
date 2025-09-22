@@ -1,0 +1,1 @@
+web: cd inboxiq_project && python manage.py migrate && python manage.py collectstatic --noinput && gunicorn inboxiq_project.wsgi:application --bind 0.0.0.0:$PORT

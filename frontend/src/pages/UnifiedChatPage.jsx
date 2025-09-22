@@ -93,6 +93,7 @@ function UnifiedChatContent() {
   const [profileSetupDialog, setProfileSetupDialog] = useState(false);
   const [userMenuAnchor, setUserMenuAnchor] = useState(null);
   const [emailConfirmDialog, setEmailConfirmDialog] = useState(null);
+  const [emailEditDialog, setEmailEditDialog] = useState(null);
   const [isSessionSyncing, setIsSessionSyncing] = useState(false);
   const navigate = useNavigate();
 
@@ -264,9 +265,13 @@ function UnifiedChatContent() {
         }]);
 
         // Handle email confirmation dialog
-        if (response.message.metadata?.drafts) {
+        if (response.message.metadata?.drafts && response.message.metadata.drafts.length > 0) {
+          const draft = response.message.metadata.drafts[0]; // Use first draft
           setEmailConfirmDialog({
-            drafts: response.message.metadata.drafts,
+            draft_id: draft.id,
+            recipient: draft.recipient,
+            subject: draft.subject,
+            body: draft.body,
             sessionId: gmailSessionId
           });
         }
@@ -305,6 +310,68 @@ function UnifiedChatContent() {
     } catch (error) {
       console.error('Logout error:', error);
     }
+  };
+
+  // Send email function
+  const handleSendEmail = async (emailData) => {
+    try {
+      const response = await fetch('http://localhost:8000/api/email/confirm/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          action: 'send',
+          draft_id: emailData.draft_id || 'temp_draft',
+          recipient_email: emailData.recipient,
+          subject: emailData.subject,
+          body: emailData.body
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Email sent successfully:', result);
+        // Show success message
+        alert('Email sent successfully!');
+      } else {
+        console.error('Failed to send email:', response.status);
+        alert('Failed to send email. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error sending email:', error);
+      alert('Error sending email. Please check your connection.');
+    }
+  };
+
+  // Edit email function
+  const handleEditEmail = (emailData) => {
+    console.log('Edit email:', emailData);
+    setEmailEditDialog({
+      draft_id: emailData.draft_id,
+      recipient: emailData.recipient,
+      subject: emailData.subject,
+      body: emailData.body,
+      sessionId: emailData.sessionId
+    });
+    // Close the confirmation dialog
+    setEmailConfirmDialog(null);
+  };
+
+  // Test function to show email dialog (for development)
+  const showTestEmailDialog = () => {
+    setEmailConfirmDialog({
+      recipient: 'sohamratwadkar@gmail.com',
+      subject: 'Fight scene — 5 am',
+      body: `Hi Sohamratwadkar,
+
+I hope you're well. I'm reaching out to check if you are available at 5 am to discuss fight scene.
+
+Please let me know if that time works for you, or suggest an alternative and I'll adjust accordingly.
+
+Looking forward to hearing from you.
+
+Best regards`
+    });
   };
 
   return (
@@ -378,6 +445,10 @@ function UnifiedChatContent() {
                   <MenuItem onClick={() => setProfileSetupDialog(true)}>
                     <SettingsIcon sx={{ mr: 1 }} />
                     Profile Settings
+                  </MenuItem>
+                  <MenuItem onClick={showTestEmailDialog}>
+                    <EmailIcon sx={{ mr: 1 }} />
+                    Test Email Dialog
                   </MenuItem>
                   <Divider />
                   <MenuItem onClick={handleLogout}>
@@ -584,48 +655,219 @@ function UnifiedChatContent() {
           maxWidth="md"
           fullWidth
         >
-          <DialogTitle>Review Email Drafts</DialogTitle>
-          <DialogContent>
-            <Typography variant="body2" sx={{ mb: 2, color: '#5f6368' }}>
-              I've created {emailConfirmDialog.drafts.length} email draft{emailConfirmDialog.drafts.length > 1 ? 's' : ''} for you. 
-              Review and choose which one to save to Gmail.
+          <DialogTitle sx={{ pb: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <EmailIcon sx={{ color: '#4285f4' }} />
+              <Typography variant="h6">Email Ready to Send</Typography>
+            </Box>
+          </DialogTitle>
+          <DialogContent sx={{ pt: 1 }}>
+            <Typography variant="body2" sx={{ mb: 3, color: '#5f6368' }}>
+              I'll send to <strong>{emailConfirmDialog.recipient}</strong>. Is that correct?
             </Typography>
             
-            {emailConfirmDialog.drafts.map((draft, index) => (
-              <Paper
-                key={index}
-                elevation={0}
-                sx={{
-                  p: 2,
-                  mb: 2,
-                  border: '1px solid #e0e0e0',
-                  borderRadius: 1
-                }}
-              >
-                <Typography variant="subtitle2" sx={{ fontWeight: 500, mb: 1 }}>
-                  Draft {index + 1}
+            {/* Email Preview */}
+            <Paper
+              elevation={0}
+              sx={{
+                border: '1px solid #e0e0e0',
+                borderRadius: 2,
+                overflow: 'hidden',
+                mb: 3
+              }}
+            >
+              {/* Email Header */}
+              <Box sx={{ bgcolor: '#f8f9fa', p: 2, borderBottom: '1px solid #e0e0e0' }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+                  Email Subject: {emailConfirmDialog.subject}
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#5f6368' }}>
+                  To: {emailConfirmDialog.recipient}
+                </Typography>
+              </Box>
+              
+              {/* Email Body Preview */}
+              <Box sx={{ p: 2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 500, mb: 1, color: '#1976d2' }}>
+                  Email Preview:
                 </Typography>
                 <Typography
                   variant="body2"
                   sx={{
                     whiteSpace: 'pre-wrap',
-                    fontFamily: 'monospace',
-                    bgcolor: '#f8f9fa',
-                    p: 1,
-                    borderRadius: 1
+                    lineHeight: 1.6,
+                    color: '#202124',
+                    maxHeight: '200px',
+                    overflow: 'auto',
+                    bgcolor: '#fafafa',
+                    p: 2,
+                    borderRadius: 1,
+                    border: '1px solid #e8eaed'
                   }}
                 >
-                  {draft}
+                  {emailConfirmDialog.body}
                 </Typography>
-              </Paper>
-            ))}
+                {emailConfirmDialog.body.length > 200 && (
+                  <Typography variant="caption" sx={{ color: '#5f6368', mt: 1, display: 'block' }}>
+                    ...and more
+                  </Typography>
+                )}
+              </Box>
+            </Paper>
+
+            <Typography variant="body2" sx={{ color: '#5f6368', textAlign: 'center' }}>
+              Reply 'Yes' to send, 'Edit' to modify, or 'Cancel' to discard.
+            </Typography>
           </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setEmailConfirmDialog(null)}>
+          <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
+            <Button 
+              onClick={() => setEmailConfirmDialog(null)}
+              sx={{ 
+                color: '#5f6368',
+                '&:hover': { bgcolor: '#f1f3f4' }
+              }}
+            >
               Cancel
             </Button>
-            <Button variant="contained" onClick={() => setEmailConfirmDialog(null)}>
-              Save to Gmail
+            <Button 
+              variant="outlined"
+              onClick={() => {
+                handleEditEmail(emailConfirmDialog);
+                setEmailConfirmDialog(null);
+              }}
+              sx={{ 
+                borderColor: '#4285f4',
+                color: '#4285f4',
+                '&:hover': { 
+                  borderColor: '#1976d2',
+                  bgcolor: '#e3f2fd'
+                }
+              }}
+            >
+              Edit
+            </Button>
+            <Button 
+              variant="contained" 
+              onClick={async () => {
+                await handleSendEmail(emailConfirmDialog);
+                setEmailConfirmDialog(null);
+              }}
+              sx={{ 
+                bgcolor: '#4285f4',
+                '&:hover': { bgcolor: '#1976d2' }
+              }}
+            >
+              Yes, Send
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
+
+      {/* Email Edit Dialog */}
+      {emailEditDialog && (
+        <Dialog
+          open={true}
+          onClose={() => setEmailEditDialog(null)}
+          maxWidth="md"
+          fullWidth
+        >
+          <DialogTitle sx={{ pb: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <EditIcon sx={{ color: '#4285f4' }} />
+              <Typography variant="h6">Edit Email</Typography>
+            </Box>
+          </DialogTitle>
+          <DialogContent sx={{ pt: 2 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="To"
+                  value={emailEditDialog.recipient}
+                  onChange={(e) => setEmailEditDialog(prev => ({
+                    ...prev,
+                    recipient: e.target.value
+                  }))}
+                  variant="outlined"
+                  size="small"
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Subject"
+                  value={emailEditDialog.subject}
+                  onChange={(e) => setEmailEditDialog(prev => ({
+                    ...prev,
+                    subject: e.target.value
+                  }))}
+                  variant="outlined"
+                  size="small"
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Message"
+                  value={emailEditDialog.body}
+                  onChange={(e) => setEmailEditDialog(prev => ({
+                    ...prev,
+                    body: e.target.value
+                  }))}
+                  variant="outlined"
+                  multiline
+                  rows={8}
+                  placeholder="Type your email message here..."
+                />
+              </Grid>
+            </Grid>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
+            <Button 
+              onClick={() => setEmailEditDialog(null)}
+              sx={{ 
+                color: '#5f6368',
+                '&:hover': { bgcolor: '#f1f3f4' }
+              }}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="outlined"
+              onClick={() => {
+                // Go back to confirmation dialog with updated data
+                setEmailConfirmDialog({
+                  draft_id: emailEditDialog.draft_id,
+                  recipient: emailEditDialog.recipient,
+                  subject: emailEditDialog.subject,
+                  body: emailEditDialog.body,
+                  sessionId: emailEditDialog.sessionId
+                });
+                setEmailEditDialog(null);
+              }}
+              sx={{ 
+                borderColor: '#4285f4',
+                color: '#4285f4',
+                '&:hover': { 
+                  borderColor: '#1976d2',
+                  bgcolor: '#e3f2fd'
+                }
+              }}
+            >
+              Preview
+            </Button>
+            <Button 
+              variant="contained" 
+              onClick={async () => {
+                await handleSendEmail(emailEditDialog);
+                setEmailEditDialog(null);
+              }}
+              sx={{ 
+                bgcolor: '#4285f4',
+                '&:hover': { bgcolor: '#1976d2' }
+              }}
+            >
+              Send Now
             </Button>
           </DialogActions>
         </Dialog>

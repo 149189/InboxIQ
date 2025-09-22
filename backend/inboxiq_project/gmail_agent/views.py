@@ -253,8 +253,12 @@ def handle_email_intent(user, chat_session, intent_analysis, gemini_service):
                     'metadata': {
                         'type': 'email_confirmation',
                         'draft_id': email_draft.id,
-                        'contact': {'name': recipient_name, 'email': recipient_email},
-                        'email_preview': {'subject': email_draft.subject, 'body': email_draft.body}
+                        'drafts': [{
+                            'id': email_draft.id,
+                            'recipient': recipient_email,
+                            'subject': email_draft.subject,
+                            'body': email_draft.body
+                        }]
                     }
                 }
             }
