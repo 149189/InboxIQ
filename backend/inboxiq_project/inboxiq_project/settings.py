@@ -121,7 +121,7 @@ GOOGLE_OAUTH_CLIENT_SECRET = config('GOOGLE_OAUTH_CLIENT_SECRET', default='GOCSP
 GEMINI_API_KEY = config('GEMINI_API_KEY', default='AIzaSyDKzHLs-bthDsnHIuFVIPwq05ceuqO22FY')
 
 # OAuth redirect URI - points to backend
-GOOGLE_OAUTH_REDIRECT_URI = config('GOOGLE_OAUTH_REDIRECT_URI', default='http://127.0.0.1:8000/auth/oauth/google/callback/')
+GOOGLE_OAUTH_REDIRECT_URI = config('GOOGLE_OAUTH_REDIRECT_URI', default='http://localhost:8000/auth/oauth/google/callback/')
 
 # Frontend URL for redirects after OAuth
 FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:5173')
@@ -196,11 +196,11 @@ SESSION_COOKIE_AGE = 1209600  # 2 weeks
 SESSION_COOKIE_NAME = 'sessionid'
 SESSION_COOKIE_HTTPONLY = False  # CRITICAL: Must be False for cross-origin
 SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
-SESSION_COOKIE_SAMESITE = 'Lax'  # Changed from None to Lax for better compatibility
+SESSION_COOKIE_SAMESITE = None  # Allow cross-origin cookies for OAuth
 SESSION_SAVE_EVERY_REQUEST = True
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 
-# Cookie settings for CORS - FIXED FOR PROXY
+# Cookie settings for CORS - FIXED FOR CROSS-ORIGIN
 SESSION_COOKIE_DOMAIN = None  # Allow cookies on localhost and 127.0.0.1
 SESSION_COOKIE_PATH = '/'
 

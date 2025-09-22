@@ -5,11 +5,11 @@ import {
   Container,
   Typography,
   Paper,
-  Grid,
   Card,
   CardContent,
   Avatar,
-  Chip
+  Chip,
+  Grid
 } from '@mui/material';
 import {
   CalendarToday as CalendarIcon,
@@ -131,7 +131,7 @@ export default function CalendarPage() {
         <Container maxWidth="xl" sx={{ py: 4 }}>
           <Grid container spacing={4}>
             {/* Features Section */}
-            <Grid item xs={12} lg={4}>
+            <Grid size={{ xs: 12, lg: 4 }}>
               <Typography
                 variant="h5"
                 sx={{
@@ -246,7 +246,7 @@ export default function CalendarPage() {
             </Grid>
 
             {/* Chat Section */}
-            <Grid item xs={12} lg={8}>
+            <Grid size={{ xs: 12, lg: 8 }}>
               <Paper
                 elevation={0}
                 sx={{

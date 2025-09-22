@@ -5,7 +5,6 @@ import {
   Container,
   Typography,
   Paper,
-  Grid,
   Card,
   CardContent,
   Avatar,
@@ -21,7 +20,8 @@ import {
   MenuItem,
   Divider,
   Button,
-  TextField
+  TextField,
+  Grid
 } from '@mui/material';
 import {
   Person as PersonIcon,
@@ -36,14 +36,14 @@ import {
   Logout as LogoutIcon,
   AutoAwesome as AIIcon
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import UnifiedChat from '../components/UnifiedChat';
 import { CalendarProvider, useCalendar } from '../contexts/CalendarContext';
 import calendarService from '../services/calendarService';
 
 // Gmail service functions (existing functionality)
 const startGmailSession = async () => {
-  const response = await fetch('http://127.0.0.1:8000/api/start/', {
+  const response = await fetch('http://localhost:8000/api/chat/start/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -53,7 +53,7 @@ const startGmailSession = async () => {
 };
 
 const sendGmailMessage = async (sessionId, message) => {
-  const response = await fetch('http://127.0.0.1:8000/api/send/', {
+  const response = await fetch('http://localhost:8000/api/chat/send/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -64,7 +64,7 @@ const sendGmailMessage = async (sessionId, message) => {
 };
 
 const getGmailHistory = async (sessionId) => {
-  const response = await fetch(`http://127.0.0.1:8000/api/history/${sessionId}/`, {
+  const response = await fetch(`http://localhost:8000/api/chat/history/${sessionId}/`, {
     credentials: 'include',
   });
   if (!response.ok) throw new Error('Failed to get Gmail history');
@@ -93,15 +93,38 @@ function UnifiedChatContent() {
   const [profileSetupDialog, setProfileSetupDialog] = useState(false);
   const [userMenuAnchor, setUserMenuAnchor] = useState(null);
   const [emailConfirmDialog, setEmailConfirmDialog] = useState(null);
+  const [isSessionSyncing, setIsSessionSyncing] = useState(false);
   const navigate = useNavigate();
 
   // Initialize sessions
   useEffect(() => {
-    initializeSessions();
-    fetchUserProfile();
+    // Check if this is an OAuth callback
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('oauth_success') === 'true') {
+      // OAuth callback - sync session first, then fetch profile
+      if (!isSessionSyncing) {
+        syncSessionAfterOAuth();
+      }
+    } else {
+      // Normal page load - just fetch profile
+      fetchUserProfile();
+    }
   }, []);
 
+  // Initialize sessions when user profile is loaded
+  useEffect(() => {
+    if (userProfile) {
+      initializeSessions();
+    }
+  }, [userProfile]);
+
   const initializeSessions = async () => {
+    // Only initialize sessions if user is authenticated
+    if (!userProfile) {
+      console.log('User not authenticated - skipping session initialization');
+      return;
+    }
+
     try {
       // Start Gmail session
       const gmailSession = await startGmailSession();
@@ -125,17 +148,86 @@ function UnifiedChatContent() {
     }
   };
 
-  const fetchUserProfile = async () => {
+  const syncSessionAfterOAuth = async () => {
+    // Prevent duplicate calls in React StrictMode
+    if (isSessionSyncing) {
+      console.log('Session sync already in progress, skipping...');
+      return;
+    }
+
     try {
-      const response = await fetch('http://127.0.0.1:8000/auth/profile/', {
+      setIsSessionSyncing(true);
+      console.log('Syncing session after OAuth...');
+      const response = await fetch('http://localhost:8000/auth/sync-session/', {
         credentials: 'include',
       });
       if (response.ok) {
+        const data = await response.json();
+        console.log('Session synced successfully:', data);
+        
+        // Manually set the session cookie if it's not being set automatically
+        if (data.session_key) {
+          document.cookie = `sessionid=${data.session_key}; path=/; SameSite=None; Secure=false`;
+          console.log('Manually set session cookie:', data.session_key);
+        }
+        
+        // Clean up URL parameters
+        window.history.replaceState({}, document.title, window.location.pathname);
+        
+        // Add a small delay to ensure cookie is set before next request
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+        // Test session with debug endpoint first
+        console.log('Testing session with debug endpoint...');
+        try {
+          const debugResponse = await fetch('http://localhost:8000/auth/session-test/', {
+            credentials: 'include',
+          });
+          const debugData = await debugResponse.json();
+          console.log('Session debug data:', debugData);
+        } catch (error) {
+          console.error('Session debug failed:', error);
+        }
+        
+        // Now fetch user profile
+        fetchUserProfile();
+      } else {
+        console.error('Failed to sync session:', response.status);
+        // Fallback to normal profile fetch
+        fetchUserProfile();
+      }
+    } catch (error) {
+      console.error('Error syncing session:', error);
+      // Fallback to normal profile fetch
+      fetchUserProfile();
+    } finally {
+      setIsSessionSyncing(false);
+    }
+  };
+
+  const fetchUserProfile = async () => {
+    try {
+      console.log('Fetching user profile...');
+      console.log('Current cookies:', document.cookie);
+      
+      const response = await fetch('http://localhost:8000/auth/oauth/profile/', {
+        credentials: 'include',
+      });
+      
+      console.log('Profile response status:', response.status);
+      
+      if (response.ok) {
         const profile = await response.json();
+        console.log('Profile loaded successfully:', profile);
         setUserProfile(profile);
+      } else if (response.status === 401) {
+        // User not authenticated - this is expected for the welcome page
+        console.log('User not authenticated - showing welcome page');
+        setUserProfile(null);
       }
     } catch (error) {
       console.error('Failed to fetch user profile:', error);
+      setUserProfile(null);
     }
   };
 
@@ -205,7 +297,7 @@ function UnifiedChatContent() {
 
   const handleLogout = async () => {
     try {
-      await fetch('http://127.0.0.1:8000/auth/logout/', {
+      await fetch('http://localhost:8000/auth/logout/', {
         method: 'POST',
         credentials: 'include',
       });
@@ -338,7 +430,7 @@ function UnifiedChatContent() {
       <Container maxWidth="xl" sx={{ py: 4 }}>
         <Grid container spacing={4}>
           {/* Features Section */}
-          <Grid item xs={12} lg={3}>
+          <Grid size={{ xs: 12, lg: 3 }}>
             <Typography
               variant="h6"
               sx={{
@@ -397,7 +489,7 @@ function UnifiedChatContent() {
           </Grid>
 
           {/* Chat Section */}
-          <Grid item xs={12} lg={9}>
+          <Grid size={{ xs: 12, lg: 9 }}>
             <Paper
               elevation={0}
               sx={{
@@ -409,14 +501,76 @@ function UnifiedChatContent() {
                 flexDirection: 'column'
               }}
             >
-              <UnifiedChat
-                onGmailMessage={handleGmailMessage}
-                onCalendarMessage={handleCalendarMessage}
-                gmailMessages={gmailMessages}
-                calendarMessages={calendarMessages}
-                isLoading={gmailLoading || calendarLoading}
-                error={gmailError || calendarError}
-              />
+              {userProfile ? (
+                <UnifiedChat
+                  onGmailMessage={handleGmailMessage}
+                  onCalendarMessage={handleCalendarMessage}
+                  gmailMessages={gmailMessages}
+                  calendarMessages={calendarMessages}
+                  isLoading={gmailLoading || calendarLoading}
+                  error={gmailError || calendarError}
+                />
+              ) : (
+                <Box
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    height: '100%',
+                    p: 4,
+                    textAlign: 'center'
+                  }}
+                >
+                  <Avatar
+                    sx={{
+                      width: 80,
+                      height: 80,
+                      backgroundColor: '#4285f4',
+                      mb: 3
+                    }}
+                  >
+                    <AIIcon sx={{ fontSize: '2.5rem' }} />
+                  </Avatar>
+                  <Typography
+                    variant="h5"
+                    sx={{
+                      color: '#202124',
+                      mb: 2,
+                      fontFamily: 'Google Sans, Roboto, sans-serif',
+                      fontWeight: 400
+                    }}
+                  >
+                    Welcome to InboxIQ
+                  </Typography>
+                  <Typography
+                    variant="body1"
+                    sx={{
+                      color: '#5f6368',
+                      mb: 4,
+                      maxWidth: '400px'
+                    }}
+                  >
+                    Please sign in to start using your AI-powered email and calendar assistant.
+                  </Typography>
+                  <Button
+                    component={RouterLink}
+                    to="/login"
+                    variant="contained"
+                    size="large"
+                    sx={{
+                      px: 4,
+                      py: 1.5,
+                      fontSize: '1rem',
+                      fontWeight: 500,
+                      borderRadius: '24px',
+                      textTransform: 'none'
+                    }}
+                  >
+                    Sign In to Continue
+                  </Button>
+                </Box>
+              )}
             </Paper>
           </Grid>
         </Grid>
