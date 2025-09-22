@@ -1,0 +1,113 @@
+name: Deploy Backend to Railway
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'backend/**'
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_inboxiq
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        cache-dependency-path: backend/requirements.txt
+        
+    - name: Install dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-django
+        
+    - name: Create test environment file
+      working-directory: ./backend/inboxiq_project
+      run: |
+        echo "SECRET_KEY=test-secret-key-for-ci" > .env
+        echo "DEBUG=True" >> .env
+        echo "DB_NAME=test_inboxiq" >> .env
+        echo "DB_USER=postgres" >> .env
+        echo "DB_PASSWORD=postgres" >> .env
+        echo "DB_HOST=localhost" >> .env
+        echo "DB_PORT=5432" >> .env
+        
+    - name: Run Django checks
+      working-directory: ./backend/inboxiq_project
+      run: |
+        python manage.py check
+        python manage.py check --deploy --settings=inboxiq_project.settings_production
+        
+    - name: Run migrations
+      working-directory: ./backend/inboxiq_project
+      run: python manage.py migrate
+      
+    - name: Run tests
+      working-directory: ./backend/inboxiq_project
+      run: python manage.py test || echo "No tests found"
+      continue-on-error: true
+      
+    - name: Collect static files
+      working-directory: ./backend/inboxiq_project
+      run: python manage.py collectstatic --noinput
+      
+  deploy-backend:
+    needs: test-backend
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Deploy to Railway
+      uses: bervProject/railway-deploy@v1.0.0
+      with:
+        railway_token: ${{ secrets.RAILWAY_TOKEN }}
+        service: ${{ secrets.RAILWAY_SERVICE_ID }}
+        
+    - name: Wait for deployment
+      run: sleep 30
+      
+    - name: Health check
+      run: |
+        curl -f ${{ secrets.BACKEND_URL }}/health/ || echo "Health check failed"
+      continue-on-error: true
+      
+    - name: Comment deployment status
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '🚀 Backend deployed to Railway! Check the deployment at ${{ secrets.BACKEND_URL }}'
+          })

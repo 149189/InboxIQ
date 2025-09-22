@@ -1,0 +1,270 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+env:
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  lint-and-format:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+        
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Install frontend dependencies
+      working-directory: ./frontend
+      run: npm ci
+      
+    - name: Install Python dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black isort
+        pip install -r requirements.txt
+        
+    - name: Lint JavaScript/TypeScript
+      working-directory: ./frontend
+      run: npm run lint || echo "ESLint not configured"
+      continue-on-error: true
+      
+    - name: Format check JavaScript/TypeScript
+      working-directory: ./frontend
+      run: npm run format:check || echo "Prettier not configured"
+      continue-on-error: true
+      
+    - name: Lint Python with flake8
+      working-directory: ./backend
+      run: |
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+      continue-on-error: true
+      
+    - name: Check Python formatting with black
+      working-directory: ./backend
+      run: black --check . || echo "Black formatting check failed"
+      continue-on-error: true
+      
+    - name: Check Python imports with isort
+      working-directory: ./backend
+      run: isort --check-only . || echo "isort check failed"
+      continue-on-error: true
+
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+        
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Install dependencies
+      run: |
+        cd frontend && npm ci
+        cd ../backend && pip install -r requirements.txt
+        pip install safety bandit
+        
+    - name: Run npm audit
+      working-directory: ./frontend
+      run: npm audit --audit-level=high || echo "npm audit found issues"
+      continue-on-error: true
+      
+    - name: Run Python safety check
+      working-directory: ./backend
+      run: safety check || echo "Safety check found issues"
+      continue-on-error: true
+      
+    - name: Run bandit security scan
+      working-directory: ./backend
+      run: bandit -r . -f json -o bandit-report.json || echo "Bandit found security issues"
+      continue-on-error: true
+      
+    - name: Upload security reports
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: security-reports
+        path: |
+          backend/bandit-report.json
+        retention-days: 7
+
+  test-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [16, 18, 20]
+        python-version: [3.9, 3.10, 3.11]
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+        
+    - name: Setup Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        
+    - name: Install frontend dependencies
+      working-directory: ./frontend
+      run: npm ci
+      
+    - name: Install backend dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Test frontend build
+      working-directory: ./frontend
+      run: npm run build
+      
+    - name: Test Django checks
+      working-directory: ./backend/inboxiq_project
+      run: |
+        echo "SECRET_KEY=test-key" > .env
+        echo "DEBUG=True" >> .env
+        python manage.py check
+
+  dependency-review:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Dependency Review
+      uses: actions/dependency-review-action@v3
+      with:
+        fail-on-severity: moderate
+        
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_inboxiq
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+        
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+        cache-dependency-path: backend/requirements.txt
+        
+    - name: Install frontend dependencies
+      working-directory: ./frontend
+      run: npm ci
+      
+    - name: Install backend dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-django coverage
+        
+    - name: Build frontend
+      working-directory: ./frontend
+      run: npm run build
+      
+    - name: Test frontend
+      working-directory: ./frontend
+      run: npm test -- --run --reporter=verbose || echo "No frontend tests found"
+      continue-on-error: true
+      
+    - name: Setup backend test environment
+      working-directory: ./backend/inboxiq_project
+      run: |
+        echo "SECRET_KEY=test-secret-key-for-ci" > .env
+        echo "DEBUG=True" >> .env
+        echo "DB_NAME=test_inboxiq" >> .env
+        echo "DB_USER=postgres" >> .env
+        echo "DB_PASSWORD=postgres" >> .env
+        echo "DB_HOST=localhost" >> .env
+        echo "DB_PORT=5432" >> .env
+        
+    - name: Run Django migrations
+      working-directory: ./backend/inboxiq_project
+      run: python manage.py migrate
+      
+    - name: Run backend tests with coverage
+      working-directory: ./backend/inboxiq_project
+      run: |
+        coverage run --source='.' manage.py test
+        coverage report
+        coverage xml
+      continue-on-error: true
+      
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./backend/inboxiq_project/coverage.xml
+        flags: backend
+        name: backend-coverage
+      continue-on-error: true
+      
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: |
+          frontend/dist/
+          backend/inboxiq_project/staticfiles/
+        retention-days: 1

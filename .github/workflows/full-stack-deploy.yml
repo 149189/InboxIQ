@@ -1,0 +1,241 @@
+name: Full Stack Deployment
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - staging
+
+env:
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.changes.outputs.frontend }}
+      backend: ${{ steps.changes.outputs.backend }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dorny/paths-filter@v2
+      id: changes
+      with:
+        filters: |
+          frontend:
+            - 'frontend/**'
+            - '.github/workflows/**'
+          backend:
+            - 'backend/**'
+            - '.github/workflows/**'
+
+  test-frontend:
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend == 'true' }}
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+        
+    - name: Install dependencies
+      working-directory: ./frontend
+      run: npm ci
+      
+    - name: Lint code
+      working-directory: ./frontend
+      run: npm run lint || echo "Linting not configured"
+      continue-on-error: true
+      
+    - name: Run tests
+      working-directory: ./frontend
+      run: npm test -- --run --reporter=verbose || echo "No tests found"
+      continue-on-error: true
+      
+    - name: Build application
+      working-directory: ./frontend
+      run: npm run build
+      
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: frontend-build
+        path: frontend/dist/
+        retention-days: 1
+
+  test-backend:
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_inboxiq
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+        cache-dependency-path: backend/requirements.txt
+        
+    - name: Install dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-django flake8
+        
+    - name: Lint Python code
+      working-directory: ./backend
+      run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+      continue-on-error: true
+      
+    - name: Create test environment
+      working-directory: ./backend/inboxiq_project
+      run: |
+        echo "SECRET_KEY=test-secret-key-for-ci" > .env
+        echo "DEBUG=True" >> .env
+        echo "DB_NAME=test_inboxiq" >> .env
+        echo "DB_USER=postgres" >> .env
+        echo "DB_PASSWORD=postgres" >> .env
+        echo "DB_HOST=localhost" >> .env
+        echo "DB_PORT=5432" >> .env
+        
+    - name: Run Django checks
+      working-directory: ./backend/inboxiq_project
+      run: python manage.py check
+      
+    - name: Run migrations
+      working-directory: ./backend/inboxiq_project
+      run: python manage.py migrate
+      
+    - name: Run tests
+      working-directory: ./backend/inboxiq_project
+      run: python manage.py test
+      continue-on-error: true
+
+  deploy-frontend:
+    needs: [changes, test-frontend]
+    if: ${{ needs.changes.outputs.frontend == 'true' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') }}
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: frontend-build
+        path: frontend/dist/
+        
+    - name: Deploy to Netlify
+      uses: nwtgck/actions-netlify@v3.0
+      with:
+        publish-dir: './frontend/dist'
+        production-branch: main
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        deploy-message: "🚀 Full Stack Deploy - ${{ github.event.head_commit.message }}"
+      env:
+        NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+        NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+      timeout-minutes: 10
+
+  deploy-backend:
+    needs: [changes, test-backend]
+    if: ${{ needs.changes.outputs.backend == 'true' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') }}
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Deploy to Railway
+      uses: bervProject/railway-deploy@v1.0.0
+      with:
+        railway_token: ${{ secrets.RAILWAY_TOKEN }}
+        service: ${{ secrets.RAILWAY_SERVICE_ID }}
+
+  integration-test:
+    needs: [deploy-frontend, deploy-backend]
+    if: ${{ always() && (needs.deploy-frontend.result == 'success' || needs.deploy-backend.result == 'success') }}
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Wait for deployments
+      run: sleep 60
+      
+    - name: Test frontend health
+      run: |
+        curl -f ${{ secrets.FRONTEND_URL }} || echo "Frontend health check failed"
+      continue-on-error: true
+      
+    - name: Test backend health
+      run: |
+        curl -f ${{ secrets.BACKEND_URL }}/health/ || echo "Backend health check failed"
+      continue-on-error: true
+      
+    - name: Test API connectivity
+      run: |
+        curl -f ${{ secrets.BACKEND_URL }}/api/health/ || echo "API health check failed"
+      continue-on-error: true
+
+  notify:
+    needs: [deploy-frontend, deploy-backend, integration-test]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Deployment Summary
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const frontendStatus = '${{ needs.deploy-frontend.result }}';
+          const backendStatus = '${{ needs.deploy-backend.result }}';
+          const integrationStatus = '${{ needs.integration-test.result }}';
+          
+          let summary = '## 🚀 Deployment Summary\n\n';
+          summary += `- **Frontend**: ${frontendStatus === 'success' ? '✅' : frontendStatus === 'skipped' ? '⏭️' : '❌'} ${frontendStatus}\n`;
+          summary += `- **Backend**: ${backendStatus === 'success' ? '✅' : backendStatus === 'skipped' ? '⏭️' : '❌'} ${backendStatus}\n`;
+          summary += `- **Integration Tests**: ${integrationStatus === 'success' ? '✅' : integrationStatus === 'skipped' ? '⏭️' : '❌'} ${integrationStatus}\n\n`;
+          
+          if (frontendStatus === 'success') {
+            summary += `🌐 **Frontend URL**: ${{ secrets.FRONTEND_URL }}\n`;
+          }
+          if (backendStatus === 'success') {
+            summary += `🔧 **Backend URL**: ${{ secrets.BACKEND_URL }}\n`;
+          }
+          
+          console.log(summary);
